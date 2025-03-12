@@ -17,146 +17,162 @@ def load_paris_data(paris_output_path):
     """
     print("Loading PARIS Output data...")
     try:
-        paris_df = pd.read_csv(paris_output_path)
+        paris_df = pd.read_csv(paris_output_path)  # Use the parameter directly
         return paris_df
     except Exception as e:
         print(f"Error loading PARIS data: {e}")
         return None
 
 def validate_category_c_scoring(paris_df):
-    """
-    Validate Category C scoring calculations.
-    
-    Args:
-        paris_df (DataFrame): PARIS Output data
-    
-    Returns:
-        dict: Validation results with metrics by location
-    """
+    """Validate Category C scoring calculations."""
     results = {}
-    
+
     try:
-        # Get unique locations
         locations = paris_df['Location'].unique()
-        
+
         for location in locations:
-            # Filter data for this location
             loc_data = paris_df[paris_df['Location'] == location]
-            
-            # Check if we have enough data points
+
             if len(loc_data) < 3:
                 results[location] = {
                     'status': 'Insufficient data',
                     'data_points': len(loc_data)
                 }
                 continue
-            
-            # Validate Delta_SoS calculation (Ideal - Real)
+
             recalculated_delta = loc_data['Ideal_So_Segment'] - loc_data['Real_So_Segment']
             delta_error = (loc_data['Delta_SoS'] - recalculated_delta).abs().mean()
-            
-            # Calculate correlation between real and ideal segment shares
-            correlation = pearsonr(loc_data['Real_So_Segment'], loc_data['Ideal_So_Segment'])[0]
-            
-            # Fit linear regression model to calculate R²
-            X = loc_data[['Real_So_Segment']]
-            y = loc_data[['Ideal_So_Segment']]
-            model = LinearRegression()
-            model.fit(X, y)
-            r_squared = model.score(X, y)
-            
-            # Calculate average Real and Ideal segment shares
+
+            # Handle constant data for correlation
+            try:
+                correlation = pearsonr(loc_data['Real_So_Segment'], loc_data['Ideal_So_Segment'])[0]
+                if np.isnan(correlation):
+                    correlation = 0
+            except:
+                correlation = 0
+
+            # Handle R-squared calculation
+            try:
+                X = loc_data[['Real_So_Segment']]
+                y = loc_data[['Ideal_So_Segment']]
+                model = LinearRegression()
+                model.fit(X, y)
+                r_squared = model.score(X, y)
+                if np.isnan(r_squared):
+                    r_squared = 0
+            except:
+                r_squared = 0
+
+            # Calculate all other metrics
             avg_real = loc_data['Real_So_Segment'].mean()
             avg_ideal = loc_data['Ideal_So_Segment'].mean()
-            
-            # Calculate total positive and negative gaps
             positive_gaps = loc_data[loc_data['Delta_SoS'] > 0]['Delta_SoS'].sum()
             negative_gaps = loc_data[loc_data['Delta_SoS'] < 0]['Delta_SoS'].sum()
-            
-            # Calculate standard deviation of gaps
             gap_std = loc_data['Delta_SoS'].std()
-            
-            # Store metrics
+
+            # Store metrics with cat_c_score
             results[location] = {
                 'status': 'Valid' if delta_error < 0.0001 else 'Error in Delta_SoS calculation',
                 'data_points': len(loc_data),
                 'delta_calculation_error': delta_error,
                 'correlation': correlation,
                 'r_squared': r_squared,
-                'cat_c_score': r_squared * 10,  # This is the Category C score calculation
+                'cat_c_score': r_squared * 10,
                 'avg_real_segment': avg_real,
                 'avg_ideal_segment': avg_ideal,
                 'positive_gaps_sum': positive_gaps,
                 'negative_gaps_sum': negative_gaps,
                 'gap_std': gap_std
             }
-            
+
     except Exception as e:
         print(f"Error validating Category C scoring: {e}")
         results['error'] = str(e)
-    
+
     return results
 
 def analyze_attribute_alignment(paris_df):
     """
     Analyze alignment between real and ideal distribution for each attribute.
-    
+
     Args:
-        paris_df (DataFrame): PARIS Output data
-    
+        paris_df (DataFrame): PARIS Output data with Real_So_Segment, Ideal_So_Segment columns
+
     Returns:
         dict: Alignment analysis by location and attribute
     """
     alignment_results = {}
     attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    
+
     try:
         # Get unique locations
+        if 'Location' not in paris_df.columns:
+            print("Error: 'Location' column not found in PARIS_Output data")
+            return {'error': 'Missing Location column'}
+
         locations = paris_df['Location'].unique()
-        
+
         for location in locations:
             # Filter data for this location
             loc_data = paris_df[paris_df['Location'] == location]
-            
+
             alignment_results[location] = {}
-            
+
             for attr in attributes:
                 if attr in loc_data.columns:
-                    # Group by the attribute and calculate average real and ideal shares
+                    # Group by the attribute and calculate real and ideal segment totals
                     attr_data = loc_data.groupby(attr).agg({
                         'Real_So_Segment': 'sum',
                         'Ideal_So_Segment': 'sum',
-                        'Delta_SoS': 'sum',
-                        'DF_Vol': 'sum'
+                        'Delta_SoS': 'sum'
                     }).reset_index()
-                    
-                    # Calculate volume percentage for each attribute value
-                    total_vol = attr_data['DF_Vol'].sum()
-                    attr_data['Volume_Pct'] = attr_data['DF_Vol'] / total_vol * 100 if total_vol > 0 else 0
-                    
-                    # Calculate weighted alignment score
-                    weighted_gaps = np.abs(attr_data['Delta_SoS']) * attr_data['Volume_Pct']
-                    alignment_score = 10 - min(10, weighted_gaps.sum() / 10)
-                    
+
+                    # Skip if no data
+                    if attr_data.empty:
+                        continue
+
+                    # Convert segment values to percentages
+                    attr_data['Real_Percentage'] = attr_data['Real_So_Segment'] * 100
+                    attr_data['Ideal_Percentage'] = attr_data['Ideal_So_Segment'] * 100
+                    attr_data['Gap_Percentage'] = attr_data['Delta_SoS'] * 100
+
+                    # Add volume data if available
+                    if 'DF_Vol' in loc_data.columns:
+                        volume_by_attr = loc_data.groupby(attr)['DF_Vol'].sum().reset_index()
+                        attr_data = pd.merge(attr_data, volume_by_attr, on=attr, how='left')
+
+                        # Calculate volume percentage
+                        total_vol = attr_data['DF_Vol'].sum()
+                        attr_data['Volume_Pct'] = attr_data['DF_Vol'] / total_vol * 100 if total_vol > 0 else 0
+                    else:
+                        # If no volume data, assume equal distribution
+                        attr_data['Volume_Pct'] = 100 / len(attr_data)
+
+                    # Calculate alignment score (inverse of weighted absolute gaps)
+                    # Lower gaps = better alignment = higher score
+                    weighted_gaps = (attr_data['Gap_Percentage'].abs() * attr_data['Volume_Pct'] / 100).sum()
+                    alignment_score = max(0, min(10, 10 - weighted_gaps / 10))
+
                     # Identify most underrepresented attributes (where ideal > real)
                     underrepresented = attr_data[attr_data['Delta_SoS'] > 0].sort_values('Delta_SoS', ascending=False)
-                    
+
                     # Identify most overrepresented attributes (where real > ideal)
                     overrepresented = attr_data[attr_data['Delta_SoS'] < 0].sort_values('Delta_SoS')
-                    
+
                     alignment_results[location][attr] = {
                         'attribute_data': attr_data,
                         'alignment_score': alignment_score,
                         'underrepresented': underrepresented[attr].tolist() if not underrepresented.empty else [],
                         'overrepresented': overrepresented[attr].tolist() if not overrepresented.empty else [],
-                        'max_gap': attr_data['Delta_SoS'].abs().max(),
-                        'avg_gap': attr_data['Delta_SoS'].abs().mean()
+                        'max_gap': attr_data['Gap_Percentage'].abs().max(),
+                        'avg_gap': attr_data['Gap_Percentage'].abs().mean()
                     }
-                    
+
     except Exception as e:
-        print(f"Error analyzing attribute alignment: {e}")
-        alignment_results['error'] = str(e)
-    
+        error_msg = f"Error analyzing attribute alignment: {str(e)}"
+        print(error_msg)
+        return {'error': error_msg}
+
     return alignment_results
 
 def visualize_category_c_validation(validation_results, locations=None):
@@ -311,39 +327,43 @@ def visualize_attribute_alignment(alignment_results, location, attributes=None):
     return fig
 
 def generate_category_c_report(validation_results, alignment_results):
-    """
-    Generate a comprehensive report on Category C validation and attribute alignment.
-    
-    Args:
-        validation_results (dict): Results from validate_category_c_scoring function
-        alignment_results (dict): Results from analyze_attribute_alignment function
-    
-    Returns:
-        str: Formatted text report
-    """
+    """Generate a comprehensive report on Category C validation and attribute alignment."""
     report = "Category C (PARIS) Validation Report\n"
     report += "=" * 40 + "\n\n"
-    
+
     # First section: Scoring validation
     report += "1. Category C Scoring Validation\n"
     report += "-" * 30 + "\n\n"
-    
+
     for location, metrics in validation_results.items():
         if location == 'error':
             continue
-            
+
         report += f"Location: {location}\n"
-        report += f"Status: {metrics['status']}\n"
-        report += f"Data Points: {metrics['data_points']}\n"
-        report += f"Category C Score: {metrics['cat_c_score']:.2f}\n"
-        report += f"Correlation: {metrics['correlation']:.4f}\n"
-        report += f"R²: {metrics['r_squared']:.4f}\n"
-        report += f"Average Real Segment Share: {metrics['avg_real_segment']:.4f}\n"
-        report += f"Average Ideal Segment Share: {metrics['avg_ideal_segment']:.4f}\n"
-        report += f"Sum of Positive Gaps: {metrics['positive_gaps_sum']:.4f}\n"
-        report += f"Sum of Negative Gaps: {metrics['negative_gaps_sum']:.4f}\n"
-        report += f"Standard Deviation of Gaps: {metrics['gap_std']:.4f}\n\n"
-    
+        report += f"Status: {metrics.get('status', 'Unknown')}\n"
+        report += f"Data Points: {metrics.get('data_points', 0)}\n"
+
+        # Safely access metrics that might be missing
+        if 'cat_c_score' in metrics:
+            report += f"Category C Score: {metrics['cat_c_score']:.2f}\n"
+        else:
+            report += "Category C Score: Not available\n"
+
+        # Add similar checks for other metrics
+        for key, format_str in [
+            ('correlation', "Correlation: {:.4f}\n"),
+            ('r_squared', "R²: {:.4f}\n"),
+            ('avg_real_segment', "Average Real Segment Share: {:.4f}\n"),
+            ('avg_ideal_segment', "Average Ideal Segment Share: {:.4f}\n"),
+            ('positive_gaps_sum', "Sum of Positive Gaps: {:.4f}\n"),
+            ('negative_gaps_sum', "Sum of Negative Gaps: {:.4f}\n"),
+            ('gap_std', "Standard Deviation of Gaps: {:.4f}\n")
+        ]:
+            if key in metrics:
+                report += format_str.format(metrics[key])
+
+        report += "\n"
+
     # Second section: Attribute alignment
     report += "2. Attribute Alignment Analysis\n"
     report += "-" * 30 + "\n\n"
@@ -470,8 +490,8 @@ def run_category_c_validation(paris_output_path, output_dir=None):
 
 # Example usage
 if __name__ == "__main__":
-    # This would be replaced with actual file paths
-    paris_output_path = "PARIS_Output.csv"
+    # Use the correct path to your data
+    paris_output_path = "/Users/kemalgider/Desktop/PORTFOLIO/All_tables/data/PARIS_Output.csv"
     output_dir = "validation_results"
-    
+
     validation_results, alignment_results = run_category_c_validation(paris_output_path, output_dir)

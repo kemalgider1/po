@@ -63,159 +63,189 @@ def load_attribute_analysis(kw_product_based_path, jj_product_based_path):
         print(f"Error loading attribute analysis data: {e}")
         return None, None
 
+
 def create_attribute_grid_visualization(comp_df, attribute, location1='Kuwait', location2='Jeju'):
     """
     Create a grid visualization comparing attribute distribution for two locations.
-    
+
     Args:
         comp_df (DataFrame): Comparison data
         attribute (str): Attribute to visualize (Flavor, Taste, Thickness, Length)
-        location1 (str): First location to compare
-        location2 (str): Second location to compare
-    
+        location1 (str): First location to compare (should be Kuwait - well aligned)
+        location2 (str): Second location to compare (should be Jeju - misaligned)
+
     Returns:
         matplotlib.figure.Figure: The figure containing the grid visualization
     """
-    # Extract attribute values and metrics
-    attribute_values = []
-    loc1_actual = []
-    loc1_ideal = []
-    loc1_gap = []
-    loc2_actual = []
-    loc2_ideal = []
-    loc2_gap = []
-    
-    # Find rows corresponding to the attribute
-    for i in range(len(comp_df)):
-        if pd.notna(comp_df.iloc[i, 0]) and attribute in str(comp_df.iloc[i, 0]):
-            # Get attribute values and metrics for the next several rows
-            start_idx = i + 1
-            while start_idx < len(comp_df) and pd.isna(comp_df.iloc[start_idx, 0]):
-                row = comp_df.iloc[start_idx]
-                
-                # Extract attribute value (first column)
-                attr_value = str(row.iloc[0])
-                if pd.notna(attr_value) and attr_value.strip():
-                    attribute_values.append(attr_value)
-                    
-                    # Extract metrics for location1
-                    loc1_actual.append(float(row.iloc[1]) if pd.notna(row.iloc[1]) else 0)
-                    loc1_ideal.append(float(row.iloc[2]) if pd.notna(row.iloc[2]) else 0)
-                    loc1_gap.append(float(row.iloc[3]) if pd.notna(row.iloc[3]) else 0)
-                    
-                    # Extract metrics for location2
-                    loc2_actual.append(float(row.iloc[4]) if pd.notna(row.iloc[4]) else 0)
-                    loc2_ideal.append(float(row.iloc[5]) if pd.notna(row.iloc[5]) else 0)
-                    loc2_gap.append(float(row.iloc[6]) if pd.notna(row.iloc[6]) else 0)
-                
-                start_idx += 1
-            
-            # Break after processing this attribute's rows
-            break
-    
-    if not attribute_values:
-        print(f"No data found for attribute: {attribute}")
-        return None
-    
-    # Create a figure with two subplots side by side
+    # Create figure with two subplots side by side
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-    
+
+    # Extract attribute values and metrics for each location
+    locations = [location1, location2]
+    location_data = {}
+
+    # Process comparison data to extract metrics for each location and attribute value
+    for loc in locations:
+        loc_values = []
+        actual_vals = []
+        pmi_vals = []
+        ideal_vals = []
+        gaps = []
+
+        # Find rows for this location in the comparison data
+        loc_rows = comp_df[comp_df['Location'] == loc]
+
+        # Find the section for this attribute
+        attr_section = None
+        for i, row in loc_rows.iterrows():
+            if pd.notna(row[0]) and attribute in str(row[0]):
+                attr_section = i
+                break
+
+        # If we found the section, extract data for the next several rows
+        if attr_section is not None:
+            idx = attr_section + 1
+            while idx < len(comp_df) and pd.isna(comp_df.iloc[idx, 0]):
+                row = comp_df.iloc[idx]
+
+                # Extract attribute value (first column if not NaN)
+                attr_value = str(row.iloc[0]) if pd.notna(row.iloc[0]) else None
+
+                if attr_value and attr_value.strip():
+                    # Extract metrics for this location
+                    # Columns should be: [Value, Actual%, Ideal%, Gap%, VOL%, PMI%, Ideal%, Gap%]
+                    loc_values.append(attr_value)
+                    actual_vals.append(float(row.iloc[1]) if pd.notna(row.iloc[1]) else 0)
+                    ideal_vals.append(float(row.iloc[2]) if pd.notna(row.iloc[2]) else 0)
+                    gaps.append(float(row.iloc[3]) if pd.notna(row.iloc[3]) else 0)
+                    pmi_vals.append(float(row.iloc[5]) if pd.notna(row.iloc[5]) and len(row) > 5 else 0)
+
+                idx += 1
+
+        location_data[loc] = {
+            'values': loc_values,
+            'actual': actual_vals,
+            'ideal': ideal_vals,
+            'gaps': gaps,
+            'pmi': pmi_vals
+        }
+
     # Define a diverging colormap for gaps
-    gap_cmap = plt.cm.RdYlGn  # Red-Yellow-Green colormap
-    
-    # Function to map gap values to colors
-    def gap_to_color(gap, max_gap=100):
-        normalized_gap = min(1, max(0, (gap + max_gap) / (2 * max_gap)))
-        return gap_cmap(normalized_gap)
-    
-    # Create grid visualization for location1
-    ax1 = axes[0]
-    ax1.set_title(f"{location1} - {attribute} Distribution", fontsize=14)
-    ax1.axis('off')
-    
-    # Create grid visualization for location2
-    ax2 = axes[1]
-    ax2.set_title(f"{location2} - {attribute} Distribution", fontsize=14)
-    ax2.axis('off')
-    
-    # Calculate grid layout
-    n_values = len(attribute_values)
-    grid_cols = min(4, n_values)
-    grid_rows = (n_values + grid_cols - 1) // grid_cols
-    
-    # Calculate cell size and spacing
-    cell_width = 0.8 / grid_cols
-    cell_height = 0.8 / grid_rows
-    x_spacing = 0.05
-    y_spacing = 0.05
-    
-    # Create color-coded grid cells for each location
-    for i, attr_value in enumerate(attribute_values):
-        row = i // grid_cols
-        col = i % grid_cols
-        
-        # Calculate cell position
-        x = col * (cell_width + x_spacing) + 0.1
-        y = 1 - (row * (cell_height + y_spacing) + 0.1 + cell_height)
-        
-        # Location 1 cell
-        gap1 = loc1_gap[i]
-        color1 = gap_to_color(gap1)
-        rect1 = plt.Rectangle((x, y), cell_width, cell_height, facecolor=color1, alpha=0.8, transform=ax1.transAxes)
-        ax1.add_patch(rect1)
-        
-        # Add text for attribute value and metrics
-        ax1.text(x + cell_width/2, y + cell_height * 0.75, attr_value, 
-                ha='center', va='center', transform=ax1.transAxes, fontsize=10, fontweight='bold')
-        ax1.text(x + cell_width/2, y + cell_height * 0.5, f"Actual: {loc1_actual[i]:.1f}%", 
-                ha='center', va='center', transform=ax1.transAxes, fontsize=9)
-        ax1.text(x + cell_width/2, y + cell_height * 0.35, f"Ideal: {loc1_ideal[i]:.1f}%", 
-                ha='center', va='center', transform=ax1.transAxes, fontsize=9)
-        ax1.text(x + cell_width/2, y + cell_height * 0.2, f"Gap: {gap1:.1f}%", 
-                ha='center', va='center', transform=ax1.transAxes, fontsize=9, 
-                color='red' if gap1 < 0 else 'green')
-        
-        # Location 2 cell
-        gap2 = loc2_gap[i]
-        color2 = gap_to_color(gap2)
-        rect2 = plt.Rectangle((x, y), cell_width, cell_height, facecolor=color2, alpha=0.8, transform=ax2.transAxes)
-        ax2.add_patch(rect2)
-        
-        # Add text for attribute value and metrics
-        ax2.text(x + cell_width/2, y + cell_height * 0.75, attr_value, 
-                ha='center', va='center', transform=ax2.transAxes, fontsize=10, fontweight='bold')
-        ax2.text(x + cell_width/2, y + cell_height * 0.5, f"Actual: {loc2_actual[i]:.1f}%", 
-                ha='center', va='center', transform=ax2.transAxes, fontsize=9)
-        ax2.text(x + cell_width/2, y + cell_height * 0.35, f"Ideal: {loc2_ideal[i]:.1f}%", 
-                ha='center', va='center', transform=ax2.transAxes, fontsize=9)
-        ax2.text(x + cell_width/2, y + cell_height * 0.2, f"Gap: {gap2:.1f}%", 
-                ha='center', va='center', transform=ax2.transAxes, fontsize=9,
-                color='red' if gap2 < 0 else 'green')
-    
-    # Add a color bar for reference
-    sm = plt.cm.ScalarMappable(cmap=gap_cmap)
+    cmap = plt.cm.RdYlGn  # Red-Yellow-Green colormap
+
+    # Create grid visualization for each location
+    for i, loc in enumerate(locations):
+        ax = axes[i]
+        ax.set_title(f"{loc} - {attribute} Distribution", fontsize=14)
+        ax.axis('off')
+
+        loc_values = location_data[loc]['values']
+        actual_vals = location_data[loc]['actual']
+        ideal_vals = location_data[loc]['ideal']
+        gaps = location_data[loc]['gaps']
+        pmi_vals = location_data[loc]['pmi']
+
+        if not loc_values:
+            ax.text(0.5, 0.5, f"No data for {loc}", ha='center', va='center', fontsize=12)
+            continue
+
+        # Calculate grid layout
+        n_values = len(loc_values)
+        grid_cols = min(4, n_values)
+        grid_rows = (n_values + grid_cols - 1) // grid_cols
+
+        # Calculate cell size and spacing
+        cell_width = 0.8 / grid_cols
+        cell_height = 0.8 / grid_rows
+        x_spacing = 0.05
+        y_spacing = 0.05
+
+        # Create color-coded grid cells
+        for j, (value, actual, ideal, gap, pmi) in enumerate(zip(loc_values, actual_vals, ideal_vals, gaps, pmi_vals)):
+            row = j // grid_cols
+            col = j % grid_cols
+
+            # Calculate cell position
+            x = col * (cell_width + x_spacing) + 0.1
+            y = 1 - (row * (cell_height + y_spacing) + 0.1 + cell_height)
+
+            # Normalize gap for color mapping (-100 to 100 scale)
+            norm_gap = (gap + 100) / 200
+            color = cmap(norm_gap)
+
+            # Create cell rectangle
+            rect = plt.Rectangle((x, y), cell_width, cell_height,
+                                 facecolor=color, alpha=0.8,
+                                 transform=ax.transAxes)
+            ax.add_patch(rect)
+
+            # Add text for attribute value and metrics
+            ax.text(x + cell_width / 2, y + cell_height * 0.85, value,
+                    ha='center', va='center', transform=ax.transAxes,
+                    fontsize=10, fontweight='bold')
+
+            ax.text(x + cell_width / 2, y + cell_height * 0.65, f"Market: {actual:.1f}%",
+                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
+
+            ax.text(x + cell_width / 2, y + cell_height * 0.5, f"PMI: {pmi:.1f}%",
+                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
+
+            ax.text(x + cell_width / 2, y + cell_height * 0.35, f"Ideal: {ideal:.1f}%",
+                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
+
+            # Add gap text with appropriate color
+            gap_text = f"Gap: {gap:.1f}%"
+            gap_color = 'red' if gap < -5 else ('green' if gap > 5 else 'black')
+            ax.text(x + cell_width / 2, y + cell_height * 0.15, gap_text,
+                    ha='center', va='center', transform=ax.transAxes,
+                    fontsize=9, color=gap_color, fontweight='bold')
+
+        # Calculate alignment score
+        alignment_score = 10 - min(10, sum(abs(g) for g in gaps) / 10)
+        ax.text(0.02, 0.97, f"Alignment Score: {alignment_score:.1f}/10",
+                transform=ax.transAxes, fontsize=11, fontweight='bold',
+                bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
+
+    # Add a colorbar for reference
+    sm = plt.cm.ScalarMappable(cmap=cmap)
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=axes, orientation='horizontal', pad=0.05, aspect=40)
     cbar.set_label('Gap: Underrepresented (Green) vs. Overrepresented (Red)')
-    
+
     # Add market share information if available
-    if 'PMI SKUs' in comp_df.columns and 'Total SKUs' in comp_df.columns:
-        # Try to find the market share info
-        for i in range(len(comp_df)):
-            if pd.notna(comp_df.iloc[i, 0]) and 'Location' in str(comp_df.iloc[i, 0]):
-                # Next row should have Kuwait and Jeju data
-                if i+1 < len(comp_df):
-                    kw_market_share = comp_df.iloc[i+1, 4] / comp_df.iloc[i+1, 3] * 100 if pd.notna(comp_df.iloc[i+1, 3]) and comp_df.iloc[i+1, 3] > 0 else 0
-                    jj_market_share = comp_df.iloc[i+1, 6] / comp_df.iloc[i+1, 5] * 100 if pd.notna(comp_df.iloc[i+1, 5]) and comp_df.iloc[i+1, 5] > 0 else 0
-                    
-                    # Add market share info to the plot titles
-                    ax1.set_title(f"{location1} - {attribute} Distribution (Market Share: {kw_market_share:.1f}%)", fontsize=14)
-                    ax2.set_title(f"{location2} - {attribute} Distribution (Market Share: {jj_market_share:.1f}%)", fontsize=14)
-                    break
-    
+    market_shares = get_market_shares(comp_df)
+    if market_shares:
+        for i, loc in enumerate(locations):
+            if loc in market_shares:
+                share = market_shares[loc]
+                axes[i].text(0.02, 0.02, f"Market Share: {share:.1f}%",
+                             transform=axes[i].transAxes, fontsize=11, fontweight='bold',
+                             bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
+
     plt.tight_layout()
-    plt.suptitle(f"Comparative {attribute} Portfolio Analysis: {location1} vs. {location2}", fontsize=16, y=1.05)
+    plt.suptitle(f"Portfolio Alignment Analysis: {attribute}", fontsize=16, y=1.05)
     return fig
+
+
+def get_market_shares(comp_df):
+    """Extract market share information from comparison data if available."""
+    market_shares = {}
+
+    # Look for market share data in the comparison file
+    for i, row in comp_df.iterrows():
+        if pd.notna(row[0]) and 'Market Share' in str(row[0]):
+            # Next rows might contain location-specific shares
+            for j in range(i + 1, min(i + 5, len(comp_df))):
+                if pd.notna(comp_df.iloc[j, 0]):
+                    loc = comp_df.iloc[j, 0]
+                    # Try to find share value in one of the numeric columns
+                    for col in range(1, min(10, len(comp_df.columns))):
+                        val = comp_df.iloc[j, col]
+                        if pd.notna(val) and isinstance(val, (int, float)) and 0 <= val <= 100:
+                            market_shares[loc] = val
+                            break
+
+    return market_shares
 
 def create_attribute_heatmap(attr_df, location, attribute):
     """
@@ -673,12 +703,13 @@ def create_radar_chart(kw_attr_df, jj_attr_df):
     
     return fig
 
-def generate_portfolio_optimization_dashboard(kw_products_path, jj_products_path, 
-                                             kw_product_based_path, jj_product_based_path,
-                                             comparison_file_path, output_dir=None):
+
+def generate_portfolio_optimization_dashboard(kw_products_path, jj_products_path,
+                                              kw_product_based_path, jj_product_based_path,
+                                              comparison_file_path, output_dir=None):
     """
     Generate a comprehensive portfolio optimization dashboard.
-    
+
     Args:
         kw_products_path (str): Path to Kuwait products data
         jj_products_path (str): Path to Jeju products data
@@ -686,7 +717,7 @@ def generate_portfolio_optimization_dashboard(kw_products_path, jj_products_path
         jj_product_based_path (str): Path to Jeju product-based analysis
         comparison_file_path (str): Path to the comparison CSV file
         output_dir (str, optional): Directory to save outputs
-    
+
     Returns:
         dict: Mapping of visualization names to figure objects
     """
@@ -694,47 +725,57 @@ def generate_portfolio_optimization_dashboard(kw_products_path, jj_products_path
     comp_df = load_comparison_data(comparison_file_path)
     kw_df, jj_df = load_product_data(kw_products_path, jj_products_path)
     kw_attr_df, jj_attr_df = load_attribute_analysis(kw_product_based_path, jj_product_based_path)
-    
+
     if any(data is None for data in [comp_df, kw_df, jj_df, kw_attr_df, jj_attr_df]):
         print("Error: Failed to load one or more data files")
         return None
-    
+
+    # Create output directory if specified
+    if output_dir:
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+
     # Generate visualizations
     visualizations = {}
-    
+    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
+
+    # 1. Create attribute grid visualizations (shelf representation)
     print("Creating attribute grid visualizations...")
-    for attribute in ['Flavor', 'Taste', 'Thickness', 'Length']:
+    for attribute in attributes:
         vis = create_attribute_grid_visualization(comp_df, attribute)
         if vis:
-            visualizations[f"{attribute}_grid"] = vis
-    
-    print("Creating product shelf visualizations...")
-    shelf_vis = create_product_shelf_visualization(kw_df, jj_df)
-    if shelf_vis:
-        visualizations["product_shelf"] = shelf_vis
-    
+            name = f"{attribute.lower()}_grid"
+            visualizations[name] = vis
+            if output_dir:
+                vis.savefig(os.path.join(output_dir, f"{name}.png"), dpi=300, bbox_inches='tight')
+
+    # 2. Create portfolio alignment visualization comparing all attributes
     print("Creating portfolio alignment visualization...")
     alignment_vis = create_portfolio_alignment_visualization(kw_attr_df, jj_attr_df)
     if alignment_vis:
         visualizations["portfolio_alignment"] = alignment_vis
-    
+        if output_dir:
+            alignment_vis.savefig(os.path.join(output_dir, "portfolio_alignment.png"), dpi=300, bbox_inches='tight')
+
+    # 3. Create radar chart comparing attribute alignment scores
     print("Creating radar chart...")
     radar_vis = create_radar_chart(kw_attr_df, jj_attr_df)
     if radar_vis:
         visualizations["radar_chart"] = radar_vis
-    
-    # Save outputs if directory is specified
-    if output_dir:
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-        
-        for name, fig in visualizations.items():
-            fig.savefig(os.path.join(output_dir, f"{name}.png"), dpi=300, bbox_inches='tight')
-            print(f"Saved {name}.png")
-    
-    return visualizations
+        if output_dir:
+            radar_vis.savefig(os.path.join(output_dir, "radar_chart.png"), dpi=300, bbox_inches='tight')
 
-# Example usage
+    # 4. Create product shelf visualization
+    print("Creating product shelf visualization...")
+    shelf_vis = create_product_shelf_visualization(kw_df, jj_df)
+    if shelf_vis:
+        visualizations["product_shelf"] = shelf_vis
+        if output_dir:
+            shelf_vis.savefig(os.path.join(output_dir, "product_shelf.png"), dpi=300, bbox_inches='tight')
+
+    print(f"Created {len(visualizations)} visualizations")
+    return visualizations
+    # Example usage
 if __name__ == "__main__":
     # This would be replaced with actual file paths
     kw_products_path = "KW_products.csv"
