@@ -1,0 +1,29 @@
+/opt/miniconda3/bin/python /Users/kemalgider/Desktop/PORTFOLIO/All_tables/market-share-validation.py 
+Loading product data for Kuwait and Jeju...
+Warning: Kuwait data is missing columns: TMO, DF_Vol, CR_BrandId
+Warning: Jeju data is missing columns: TMO, DF_Vol, CR_BrandId
+Market Share Validation Report
+==============================
+
+Location: Kuwait
+--------------------
+PMI Volume: 0
+Total Market Volume: 0
+Market Share: 0.00%
+PMI SKU Count: 0
+Total SKU Count: 0
+
+Location: Jeju
+--------------------
+PMI Volume: 0
+Total Market Volume: 0
+Market Share: 0.00%
+PMI SKU Count: 0
+Total SKU Count: 0
+
+Key Insights:
+--------------------
+Market Share Difference (Kuwait - Jeju): 0.00%
+Cannot calculate ratio: Jeju market share is zero
+Kuwait PMI SKU ratio: N/A (no SKUs found)
+Jeju PMI SKU ratio: N/A (no SKUs found)

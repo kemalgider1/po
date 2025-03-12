@@ -1,0 +1,25 @@
+Market Share Validation Report
+==============================
+
+Location: Kuwait
+--------------------
+PMI Volume: 0
+Total Market Volume: 0
+Market Share: 0.00%
+PMI SKU Count: 0
+Total SKU Count: 0
+
+Location: Jeju
+--------------------
+PMI Volume: 0
+Total Market Volume: 0
+Market Share: 0.00%
+PMI SKU Count: 0
+Total SKU Count: 0
+
+Key Insights:
+--------------------
+Market Share Difference (Kuwait - Jeju): 0.00%
+Cannot calculate ratio: Jeju market share is zero
+Kuwait PMI SKU ratio: N/A (no SKUs found)
+Jeju PMI SKU ratio: N/A (no SKUs found)

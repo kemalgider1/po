@@ -1,0 +1,501 @@
+Location,TotalSKU,GreenFlagSKU,RedFlagSKU
+Marseille,41,3,10
+Bodrum Airport,168,9,42
+Newcastle,31,2,8
+Varna,30,2,8
+Jeddah,62,4,16
+Lyon Saint Exupery,42,3,11
+Billund,9,1,2
+Paris Orly,39,2,10
+Trondheim,36,2,9
+Johor Bahru,23,2,6
+Port-au-Prince (Haiti),18,1,5
+Cordoba,7,1,2
+Los Cabos,70,4,18
+Warsaw-Modlin,15,1,4
+Asturias,14,1,4
+Aswan,30,2,8
+Dresden,15,1,4
+Kaunas,10,1,3
+Bordeaux,29,2,7
+Togo,17,1,4
+Aarhus,9,1,2
+Prague,16,1,4
+Rotterdam,9,1,2
+Osaka - Kansai,182,10,46
+Norwich,23,2,6
+Hangzhou Xiaoshan,91,5,23
+Bilbao,30,2,8
+Hanoi,29,2,7
+Cayenne,31,2,8
+Eindhoven,12,1,3
+Gaziantep Airport,155,8,39
+Denizli Cardak Airport,54,3,14
+Bristol,35,2,9
+Seoul,118,6,30
+Mazatlan,36,2,9
+Porto,22,2,6
+Puerto Vallarta,61,4,15
+Agadir,111,6,28
+Ngurah Rai,83,5,21
+Wuhan Tianhe,89,5,22
+Urumchi Diwobao,89,5,22
+Ibiza,50,3,13
+Ixtapa Zihuatanejo,34,2,9
+Everrich Downtown Kinmen,42,3,11
+Durban,23,2,6
+Singapore - Changi,17,1,4
+Rome Fiumicino,38,2,10
+Puerto Plata,46,3,12
+Florence,27,2,7
+Ankara Airport,164,9,41
+Yerevan,40,2,10
+Lagos,36,2,9
+Stuttgart,28,2,7
+Birmingham,38,2,10
+Yangon,20,1,5
+Kilimanjaro,30,2,8
+Vigo,17,1,4
+Hyderabad,25,2,6
+Quanzhou,8,1,2
+Paderborn,16,1,4
+Strasbourg,10,1,3
+Mitilini,20,1,5
+Nuernberg,14,1,4
+Mendoza,7,1,2
+Basel,62,4,16
+Guangzhou Baiyun,89,5,22
+Jeju,115,6,29
+Medellin Jose Maria Cordova,30,2,8
+Essaouira,64,4,16
+Aberdeen,29,2,7
+Dalian Zhoushuizi,80,4,20
+Yanji Zhaoyangchuan,79,4,20
+Glasgow,36,2,9
+Valencia,51,3,13
+Fuzhou Changle,83,5,21
+Nice,42,3,11
+Bournemouth,25,2,6
+Salzburg,19,1,5
+Dar Es Salaam,37,2,9
+Venice,35,2,9
+Tel-Aviv,24,2,6
+Chambery,15,1,4
+Sochi,29,2,7
+Olsztyn,18,1,5
+Panama Tocumen,49,3,12
+Tokyo - Haneda,29,2,7
+Poznan-Lawica,12,1,3
+Samos,18,1,5
+Lanzarote,50,3,13
+Exeter,32,2,8
+Perth,39,2,10
+Managua,26,2,7
+Lodz,20,1,5
+Bergamo,29,2,7
+Cairns,5,1,1
+Djibouti,4,1,1
+Guiyang Longdongbao,3,1,1
+Umea,7,1,2
+Ekaterinburg,7,1,2
+Jinan Xiaoqiang,86,5,22
+Okayama,28,2,7
+Berlin Brandenburg,39,2,10
+Nanning Wuxu,88,5,22
+Marka,10,1,3
+Yancheng Nanyang,54,3,14
+Nantes,34,2,9
+Piarco,5,1,1
+Santorini,41,3,10
+Athens,69,4,17
+Bari,14,1,4
+Ioannina,11,1,3
+Barcelona,59,3,15
+Alexandria,31,2,8
+Beirut - Rafik Hariri,37,2,9
+Nador,59,3,15
+Porto Alegre,35,2,9
+Kingston,16,1,4
+Paramaribo,18,1,5
+Port Louis,6,1,2
+Podgorica,3,1,1
+Zurich,87,5,22
+Istanbul Asia Airport,192,10,48
+Nis,25,2,6
+Monterrey,42,3,11
+Chattrapati Shivaji,24,2,6
+Torino,17,1,4
+Frankfurt,49,3,12
+Indira Gandhi,28,2,7
+Copenhagen,20,1,5
+Hannover,35,2,9
+Baku,22,2,6
+Christchurch,7,1,2
+Rabil,32,2,8
+Malmo,16,1,4
+Nanjing Lukou,8,1,2
+Oslo,40,2,10
+Karpathos,8,1,2
+Edinburgh,36,2,9
+Marrakech,113,6,28
+Sanya Fenghuang,79,4,20
+Soekarno Hatta,31,2,8
+Vientiane,24,2,6
+Amman,108,6,27
+Daegu,100,5,25
+Gran Canaria,50,3,13
+Cardiff,27,2,7
+Corfu,52,3,13
+Min Vody,24,2,6
+Ho Chi Minh,26,2,7
+Baghdad,23,2,6
+Pamandzi,9,1,2
+Southampton,33,2,8
+Astrakhan,18,1,5
+Sendai,14,1,4
+Kaohsiung,42,3,11
+Ibaraki,8,1,2
+Sao Paulo - Guarulhos,60,3,15
+Wenzhou Longwan,83,5,21
+Luanda,10,1,3
+Queretaro,5,1,1
+Verona,23,2,6
+Aomori,5,1,1
+Cork,14,1,4
+Kralendijk (Bonaire),12,1,3
+Katima Mulilo,3,1,1
+Guernsey,3,1,1
+Sharm El Sheikh,32,2,8
+Chitose,26,2,7
+Malaga,58,3,15
+Palermo,19,1,5
+Trabzon Airport,93,5,23
+Cheongju,97,5,24
+La Palma,49,3,12
+Cologne,27,2,7
+Basrah,21,2,5
+Yantai Penglai,83,5,21
+Tirana,88,5,22
+Skopje,52,3,13
+Glasgow Prestwick,18,1,5
+Kigali,10,1,3
+Ningbo Lishe,85,5,21
+Almaty,32,2,8
+East Midlands,32,2,8
+Sevilla,50,3,13
+Faro Airport,22,2,6
+London Stansted,36,2,9
+Montego Bay,89,5,22
+Chengdu Tianfu,89,5,22
+Almeria,34,2,9
+Nouakchott,28,2,7
+Dubrovnik,3,1,1
+London Luton,27,2,7
+Treviso,18,1,5
+St. Petersburg Pulkovo,26,2,7
+Dalaman Airport,71,4,18
+Montevideo,5,1,1
+Melbourne,11,1,3
+Gdansk,26,2,7
+Madeira,21,2,5
+Leopold Sedar Senghar,40,2,10
+Radom,6,1,2
+Manila - Ninoy Aquino,3,1,1
+Punta del Este,1,1,0
+Bergen,35,2,9
+Antigua,10,1,3
+Fuerteventura,50,3,13
+Monastir,91,5,23
+Tangier,104,6,26
+Shanghai Pudong,88,5,22
+Rosario,7,1,2
+Espargos,57,3,14
+Diyarbakir Airport,146,8,37
+Penang,14,1,4
+Rzeszow,14,1,4
+Bangalore,67,4,17
+Danang,24,2,6
+Sihanoukville,37,2,9
+Santiago De Compostela,30,2,8
+Geneva,83,5,21
+Salalah,33,2,8
+Hefei Xinqiao,83,5,21
+Alexandoupolis,40,2,10
+Milan - Linate,25,2,6
+Johannesburg,25,2,6
+Paris Charles De Gaulle,42,3,11
+RIYADH,58,3,15
+Reus,34,2,9
+Toulouse,49,3,12
+Cairo,59,3,15
+Antalya Gazipasa Airport,105,6,26
+Nairobi,8,1,2
+Santiago Cibao,25,2,6
+Ulaanbaatar,53,3,13
+Douala,5,1,1
+Wroclaw,14,1,4
+Komatsu,6,1,2
+Dublin,14,1,4
+Gibraltar,9,1,2
+Bujumbura,9,1,2
+Fes,94,5,24
+Rio de Janeiro,66,4,17
+Oujda,87,5,22
+Munich,37,2,9
+Casablanca,119,6,30
+Samsun Airport,151,8,38
+Abu Dhabi,88,5,22
+Yinchuan Hedong,86,5,22
+Cancun,82,5,21
+Weihai Dashuibo,76,4,19
+Xuzhou Guanyin,79,4,20
+Kos,41,3,10
+Al Hoceima,45,3,11
+Cukurova Airport,131,7,33
+Kunming Wujiaba,90,5,23
+Colombo,72,4,18
+Leeds Bradford,29,2,7
+Florianopolis,43,3,11
+Astana,26,2,7
+PRISTINA,46,3,12
+Ostrava,10,1,3
+Tarbes - Lourdes,16,1,4
+Lille,17,1,4
+Busan - Kimhae,117,6,29
+Oranjestad,71,4,18
+Kayseri Airport,116,6,29
+Humberside,23,2,6
+Milan - Malpensa,43,3,11
+Brussels,18,1,5
+Incheon,119,6,30
+Belo Horizonte,53,3,13
+Kalibo,2,1,1
+Bologna,17,1,4
+Tuzla,13,1,3
+Bamako,4,1,1
+Tashkent,16,1,4
+Shizuoka,7,1,2
+Haiphong,4,1,1
+Kinshasa,5,1,1
+Ohrid,35,2,9
+Dubai,148,8,37
+Naples,35,2,9
+Hamburg,40,2,10
+Banjul,22,2,6
+St. George's Point Saline,40,2,10
+Fukuoka,113,6,28
+Macau,32,2,8
+Hiroshima,14,1,4
+Moscow - Domodedovo,27,2,7
+Buenos Aires Aeroparque,9,1,2
+Lublin,13,1,3
+Beijing,88,5,22
+Guadalajara,54,3,14
+Santo Domingo Las Americas,50,3,13
+Sarajevo,15,1,4
+Kuala Lumpur,37,2,9
+Szczecin,19,1,5
+Rhodes,59,3,15
+Cozumel,49,3,12
+Luxor,31,2,8
+Mykonos,33,2,8
+Shannon,6,1,2
+Accra,46,3,12
+Hebei,11,1,3
+Cochin,15,1,4
+Krasnoyarsk,30,2,8
+Grenoble,20,1,5
+Harbin Taiping,73,4,18
+Amsterdam - Schiphol,21,2,5
+Jersey,9,1,2
+San Jose,5,1,1
+Roland Garros,23,2,6
+Orebro,2,1,1
+Ciampino Airport,26,2,7
+Katowice,14,1,4
+Liberia,5,1,1
+Gaborone,1,1,0
+Gabon,38,2,10
+Cam Ranh,24,2,6
+London Heathrow,37,2,9
+Punta Cana - Higuey,96,5,24
+Tunis,95,5,24
+Qingdao Liuting,89,5,22
+Aktio,32,2,8
+Alicante,55,3,14
+Bridgetown,24,2,6
+Konya Airport,70,4,18
+Enfidha,80,4,20
+Medina,52,3,13
+Kagoshima,6,1,2
+Kutahya Airport,53,3,13
+Tbilisi,28,2,7
+Bogota,69,4,17
+Duesseldorf,40,2,10
+Cali,47,3,12
+Erbil International Airport,19,1,5
+Xian Xianyang,90,5,23
+Queenstown,2,1,1
+San Salvador Comalapa,44,3,11
+Samara,6,1,2
+Helsinki-Vantaa,4,1,1
+London Southend Airport,26,2,7
+Kota Kinabalu,18,1,5
+Murcia,24,2,6
+London City,21,2,5
+Pengsheng,15,1,4
+Lusaka,11,1,3
+Granada,9,1,2
+Minsk,3,1,1
+Hohhot Baita,81,5,20
+Manama,91,5,23
+Hong Kong,58,3,15
+Mandalay,8,1,2
+Sofia,38,2,10
+Phnom Penh,85,5,21
+Viracopos,54,3,14
+La Paz Manuel Marquez de Leon,17,1,4
+Lima,78,4,20
+Tokyo - Narita,117,6,29
+Zakynthos,47,3,12
+Charleroi,18,1,5
+Buenos Aires - Ezeiza,9,1,2
+Male,31,2,8
+Chubu,133,7,33
+Munster-Osnabruck,14,1,4
+London Gatwick,37,2,9
+Batumi,27,2,7
+Fortaleza,33,2,8
+Chongqing Jiangbei,89,5,22
+Belgrade,36,2,9
+Warsaw,36,2,9
+Belize City,22,2,6
+Krakow Balice,30,2,8
+Doha,50,3,13
+Muan,64,4,16
+La Romana,33,2,8
+Phu Quok,28,2,7
+Jerez De La Frontera,33,2,8
+Auckland,7,1,2
+Bangui,2,1,1
+Zanzibar,10,1,3
+Montpellier,11,1,3
+Iwate,2,1,1
+Nykoping,3,1,1
+Juba,3,1,1
+Heraklion Airport,53,3,13
+Mexico City,79,4,20
+Eskisehir Airport,84,5,21
+Graz,21,2,5
+Asyut,30,2,8
+Mahon Airport,47,3,12
+Addis Ababa,94,5,24
+Yangyang,53,3,13
+Curacao,27,2,7
+Izmir Airport,179,9,45
+Taiyuan Wusu,79,4,20
+Guatemala City,34,2,9
+Dortmund,21,2,5
+Zia,22,2,6
+Shanghai Hongqiao,88,5,22
+Tozeur,22,2,6
+Suleymania Airport,20,1,5
+Xiamen Gaoqi,87,5,22
+Cape Town,25,2,6
+Natal,43,3,11
+Skiathos,23,2,6
+Brasilia,52,3,13
+Kutaisi,27,2,7
+Stavanger,40,2,10
+Brno,5,1,1
+Vienna,23,2,6
+Adelaide,5,1,1
+Novosibirsk,2,1,1
+Kuwait,103,6,26
+Madrid Barajas,60,3,15
+Liverpool,31,2,8
+Abidjan,43,3,11
+Rabat,99,5,25
+Aalborg,4,1,1
+Lisbon,22,2,6
+Bydgoszcz,14,1,4
+Mudanjiang Hailang,76,4,19
+Istanbul Airport,78,4,20
+Banja Luka,22,2,6
+Quito,38,2,10
+Moscow - Sheremetyevo,36,2,9
+Gerona,50,3,13
+Taipei - Taoyuan,42,3,11
+Manchester,36,2,9
+Faroe Islands,7,1,2
+Entebbe,21,2,5
+Stockholm Arlanda,20,1,5
+Tulear,4,1,1
+A Coruna,13,1,3
+Vilnius,11,1,3
+Niamey,8,1,2
+Takamatsu,10,1,3
+Fort-de-France,31,2,8
+Jomo Kenyatta,57,3,14
+Marsa Aalam,31,2,8
+Riga,14,1,4
+Sydney,10,1,3
+Aqaba,67,4,17
+Praia,39,2,10
+Changsha Huanghua,89,5,22
+DAMMAM,52,3,13
+Tenerife,50,3,13
+Nanchang Changbei,78,4,20
+Moscow - Vnukovo,29,2,7
+Antalya Airport,194,10,49
+Sfax,25,2,6
+Palma De Mallorca,57,3,14
+Sierra Leone,8,1,2
+Pisa,19,1,5
+Adana Airport,61,4,15
+Santiago Arturo Merino Benitez,34,2,9
+Ras El Khaymah,31,2,8
+Thessaloniki,60,3,15
+Manas,68,4,17
+Bariloche,3,1,1
+Sandefjord-Torp,21,2,5
+Miyazaki,4,1,1
+Zagreb,5,1,1
+Elblag,16,1,4
+Windhoek,10,1,3
+Genoa,8,1,2
+Vaxjo,3,1,1
+Split,3,1,1
+Gothenburg,1,1,0
+Santander,12,1,3
+Sharjah,94,5,24
+Bourgas,29,2,7
+Jerba,88,5,22
+Taichung,42,3,11
+Recife,47,3,12
+Ouarzazate,57,3,14
+Shenyang Taoxian,88,5,22
+Hurgada,32,2,8
+Makhachkala,12,1,3
+Basseterre (Saint Kitts),40,2,10
+Chania,47,3,12
+Zhengzhou Xinzheng,88,5,22
+Abuja,30,2,8
+Volgograd,28,2,7
+Wuxi Shuofang,83,5,21
+Muscat,35,2,9
+Kavala,24,2,6
+Brisbane,11,1,3
+Naha,26,2,7
+Pointe-a-Pitre,32,2,8
+Changchun Longjia,79,4,20
+St. Maarten Princess Juliana,22,2,6
+Salvador,37,2,9
+Beauvais,21,2,5
+Fukushima,2,1,1
+Samana El Catey,24,2,6
+Bremen,15,1,4
+Guayaquil,20,1,5
+Lulea,4,1,1
+Asuncion Silvio Petterossi,9,1,2
+Oita,4,1,1
