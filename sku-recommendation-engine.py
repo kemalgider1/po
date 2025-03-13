@@ -1,1051 +1,678 @@
+"""
+Portfolio Optimization Recommendations Engine
+
+This script analyzes the product distribution data and generates specific
+SKU-level recommendations for portfolio optimization.
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.colors import LinearSegmentedColormap
+from pathlib import Path
+import os
 
-def load_data_files(jj_products_path, jj_product_based_path, paris_output_path=None):
-    """
-    Load the necessary data files for generating SKU recommendations.
-    
-    Args:
-        jj_products_path (str): Path to Jeju products data
-        jj_product_based_path (str): Path to Jeju product-based analysis
-        paris_output_path (str, optional): Path to PARIS_Output data
-    
-    Returns:
-        tuple: (jj_df, jj_attr_df, paris_df) loaded dataframes
-    """
-    print("Loading data files for SKU recommendations...")
-    
-    try:
-        # Load Jeju products data
-        jj_df = pd.read_csv(jj_products_path)
-        
-        # Load Jeju attribute analysis
-        jj_attr_df = pd.read_csv(jj_product_based_path)
-        
-        # Load PARIS output if provided
-        paris_df = None
-        if paris_output_path:
-            paris_df = pd.read_csv(paris_output_path)
-            # Filter for Jeju if location column exists
-            if 'Location' in paris_df.columns:
-                paris_df = paris_df[paris_df['Location'] == 'Jeju']
-        
-        return jj_df, jj_attr_df, paris_df
-    
-    except Exception as e:
-        print(f"Error loading data files: {e}")
-        return None, None, None
 
-def extract_attribute_gaps(jj_attr_df, paris_df=None):
+def load_location_data(location, data_dir='./locations_data'):
     """
-    Extract attribute gaps from Jeju attribute analysis or PARIS output.
-    
+    Load all available data files for a specific location.
+
     Args:
-        jj_attr_df (DataFrame): Jeju attribute analysis data
-        paris_df (DataFrame, optional): PARIS output data filtered for Jeju
-    
+        location (str): Location name (e.g., 'Kuwait', 'Jeju')
+        data_dir (str): Directory containing location data files
+
     Returns:
-        dict: Dictionary mapping attributes to their gaps data
+        dict: Dictionary containing all loaded dataframes
     """
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    attribute_gaps = {}
-    
-    # Extract from product-based analysis first
-    for attribute in attributes:
-        # Find the section for this attribute
-        found_section = False
-        attr_values = []
-        actual_vals = []
-        ideal_vals = []
-        gaps = []
-        
-        for row_idx in range(len(jj_attr_df)):
-            if pd.notna(jj_attr_df.iloc[row_idx, 0]) and attribute in str(jj_attr_df.iloc[row_idx, 0]):
-                found_section = True
-                continue
-            
-            if found_section:
-                # Stop when we hit another attribute section
-                if pd.notna(jj_attr_df.iloc[row_idx, 0]) and any(attr in str(jj_attr_df.iloc[row_idx, 0]) for attr in attributes):
+    data_dir = Path(data_dir)
+    data = {}
+
+    # Try to load common file types
+    file_types = [
+        'Flavor_Distribution',
+        'Taste_Distribution',
+        'Thickness_Distribution',
+        'Length_Distribution',
+        'PMI_Products',
+        'Top_90pct_Products',
+        'Flavor_Top_Products',
+        'Taste_Top_Products',
+        'Thickness_Top_Products',
+        'Length_Top_Products',
+        'Summary',
+        'Passenger_Distribution'
+    ]
+
+    for file_type in file_types:
+        try:
+            # Try different naming patterns
+            file_patterns = [
+                f"{location}_product_analysis_{file_type}.csv",
+                f"{location.lower()}_product_analysis_{file_type}.csv"
+            ]
+
+            for pattern in file_patterns:
+                file_path = data_dir / pattern
+                if file_path.exists():
+                    data[file_type] = pd.read_csv(file_path)
+                    print(f"Loaded {file_type} data for {location}")
                     break
-                
-                # Extract values
-                row = jj_attr_df.iloc[row_idx]
-                if pd.notna(row.iloc[0]) and str(row.iloc[0]).strip():
-                    # Find columns with actual, ideal, and gap values
-                    actual_col = 1  # Assuming fixed positions based on observed patterns
-                    ideal_col = 2
-                    gap_col = 3
-                    
-                    if pd.notna(row.iloc[actual_col]) and pd.notna(row.iloc[ideal_col]):
-                        attr_values.append(str(row.iloc[0]))
-                        actual_vals.append(float(row.iloc[actual_col]))
-                        ideal_vals.append(float(row.iloc[ideal_col]))
-                        gaps.append(float(row.iloc[gap_col]) if pd.notna(row.iloc[gap_col]) else ideal_vals[-1] - actual_vals[-1])
-        
-        # Store extracted data
-        if attr_values:
-            gap_df = pd.DataFrame({
-                attribute: attr_values,
-                'Actual': actual_vals,
-                'Ideal': ideal_vals,
-                'Gap': gaps
-            })
-            attribute_gaps[attribute] = gap_df
-    
-    # If PARIS data is available, use it to supplement/validate
-    if paris_df is not None:
-        for attribute in attributes:
-            if attribute in paris_df.columns:
-                # Group by the attribute and aggregate
-                attr_data = paris_df.groupby(attribute).agg({
-                    'Real_So_Segment': 'sum',
-                    'Ideal_So_Segment': 'sum',
-                    'Delta_SoS': 'sum',
-                    'DF_Vol': 'sum'
-                }).reset_index()
-                
-                # If we don't already have data for this attribute, add it
-                if attribute not in attribute_gaps:
-                    gap_df = pd.DataFrame({
-                        attribute: attr_data[attribute].values,
-                        'Actual': attr_data['Real_So_Segment'].values * 100,  # Convert to percentage
-                        'Ideal': attr_data['Ideal_So_Segment'].values * 100,  # Convert to percentage
-                        'Gap': attr_data['Delta_SoS'].values * 100  # Convert to percentage
-                    })
-                    attribute_gaps[attribute] = gap_df
-    
-    return attribute_gaps
 
-def identify_top_90_percent_products(jj_df):
-    """
-    Identify products that make up 90% of the market in Jeju.
-    
-    Args:
-        jj_df (DataFrame): Jeju products data
-    
-    Returns:
-        DataFrame: Top products that make up 90% of the market
-    """
-    # Verify necessary columns exist
-    if 'DF_Vol' not in jj_df.columns:
-        print("Error: DF_Vol column not found in products data")
-        return None
-    
-    # Sort by volume
-    sorted_df = jj_df.sort_values('DF_Vol', ascending=False).copy()
-    
-    # Calculate cumulative volume and percentage
-    total_volume = sorted_df['DF_Vol'].sum()
-    sorted_df['cum_vol'] = sorted_df['DF_Vol'].cumsum()
-    sorted_df['cum_pct'] = sorted_df['cum_vol'] / total_volume * 100
-    
-    # Filter for 90%
-    top_90_pct = sorted_df[sorted_df['cum_pct'] <= 90].copy()
-    
-    # Check if empty
-    if top_90_pct.empty:
-        print("Warning: No products make up 90% of the market")
-        return None
-    
-    print(f"Identified {len(top_90_pct)} products making up 90% of the market")
-    print(f"These products account for {top_90_pct['DF_Vol'].sum() / total_volume * 100:.2f}% of total volume")
-    
-    # Count PMI vs competitor products
-    pmi_count = len(top_90_pct[top_90_pct['TMO'] == 'PMI'])
-    comp_count = len(top_90_pct[top_90_pct['TMO'] != 'PMI'])
-    print(f"PMI products in top 90%: {pmi_count} ({pmi_count / len(top_90_pct) * 100:.2f}%)")
-    print(f"Competitor products in top 90%: {comp_count} ({comp_count / len(top_90_pct) * 100:.2f}%)")
-    
-    return top_90_pct
+        except Exception as e:
+            print(f"Error loading {file_type} data for {location}: {e}")
 
-def analyze_attribute_distribution(jj_df, top_90_pct=None):
+    return data
+
+
+def analyze_portfolio_gaps(location_data):
     """
-    Analyze the attribute distribution of Jeju products.
-    
+    Analyze portfolio gaps across all attributes.
+
     Args:
-        jj_df (DataFrame): Jeju products data
-        top_90_pct (DataFrame, optional): Top products that make up 90% of the market
-    
+        location_data (dict): Dictionary containing location data
+
     Returns:
-        dict: Dictionary mapping attributes to their distribution data
+        dict: Portfolio gap analysis
     """
     attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    
-    # Validate that attributes exist in the data
-    available_attrs = [attr for attr in attributes if attr in jj_df.columns]
-    if not available_attrs:
-        print("Error: No attribute columns found in products data")
-        return None
-    
-    # Use either all products or top 90% products
-    df_to_analyze = top_90_pct if top_90_pct is not None else jj_df
-    
-    attribute_distribution = {}
-    
-    for attribute in available_attrs:
-        # Calculate overall distribution
-        total_volume = df_to_analyze['DF_Vol'].sum()
-        
-        # Group by attribute and TMO
-        attr_dist = df_to_analyze.groupby([attribute, 'TMO'])['DF_Vol'].sum().unstack(fill_value=0).reset_index()
-        
-        # Add total column
-        if 'PMI' not in attr_dist.columns:
-            attr_dist['PMI'] = 0
-        if set(attr_dist.columns) - set(['PMI', attribute]):
-            comp_cols = list(set(attr_dist.columns) - set(['PMI', attribute]))
-            attr_dist['Comp'] = attr_dist[comp_cols].sum(axis=1)
-        else:
-            attr_dist['Comp'] = 0
-        
-        attr_dist['Total'] = attr_dist['PMI'] + attr_dist['Comp']
-        
-        # Calculate percentages
-        attr_dist['Total_Pct'] = attr_dist['Total'] / total_volume * 100
-        attr_dist['PMI_Pct'] = attr_dist['PMI'] / total_volume * 100
-        attr_dist['Comp_Pct'] = attr_dist['Comp'] / total_volume * 100
-        
-        # Calculate PMI share within each attribute value
-        attr_dist['PMI_Share'] = attr_dist['PMI'] / attr_dist['Total'] * 100
-        
-        # Store the distribution
-        attribute_distribution[attribute] = attr_dist
-    
-    return attribute_distribution
-
-def generate_sku_recommendations(jj_df, attribute_gaps, attribute_distribution, top_90_pct=None):
-    """
-    Generate SKU-level recommendations for Jeju.
-    
-    Args:
-        jj_df (DataFrame): Jeju products data
-        attribute_gaps (dict): Attribute gaps from extract_attribute_gaps function
-        attribute_distribution (dict): Attribute distribution from analyze_attribute_distribution function
-        top_90_pct (DataFrame, optional): Top products that make up 90% of the market
-    
-    Returns:
-        dict: Dictionary containing recommendations for optimization
-    """
-    # Initialize recommendations
-    recommendations = {
-        'underrepresented_attributes': {},
-        'overrepresented_attributes': {},
-        'skus_to_add': [],
-        'skus_to_remove': [],
-        'skus_to_maintain': [],
-        'attribute_combinations_needed': []
+    gap_analysis = {
+        'underrepresented': [],
+        'overrepresented': []
     }
-    
-    # Identify under and over-represented attributes
-    for attribute, gap_df in attribute_gaps.items():
-        # Sort by gap (descending)
-        gap_df_sorted = gap_df.sort_values('Gap', ascending=False)
-        
-        # Identify underrepresented attributes (positive gap)
-        underrepresented = gap_df_sorted[gap_df_sorted['Gap'] > 5].copy()
-        if not underrepresented.empty:
-            recommendations['underrepresented_attributes'][attribute] = underrepresented
-        
-        # Identify overrepresented attributes (negative gap)
-        overrepresented = gap_df_sorted[gap_df_sorted['Gap'] < -5].sort_values('Gap').copy()
-        if not overrepresented.empty:
-            recommendations['overrepresented_attributes'][attribute] = overrepresented
-    
-    # Get current PMI products
-    pmi_products = jj_df[jj_df['TMO'] == 'PMI'].copy()
-    
-    # Analyze SKUs to maintain (strong performers in well-represented or underrepresented segments)
-    skus_to_maintain = []
-    
-    # Use top 90% if available, otherwise use all PMI products
-    pmi_top_products = top_90_pct[top_90_pct['TMO'] == 'PMI'] if top_90_pct is not None else pmi_products
-    
-    for idx, product in pmi_top_products.iterrows():
-        maintain = True
-        attribute_match = 0
-        
-        # Count how many attributes are in underrepresented or well-represented segments
-        for attribute in ['Flavor', 'Taste', 'Thickness', 'Length']:
-            if attribute not in product or pd.isna(product[attribute]):
-                continue
-                
-            # Check if this attribute value is underrepresented
-            if attribute in recommendations['underrepresented_attributes']:
-                underrep_values = recommendations['underrepresented_attributes'][attribute][attribute].tolist()
-                if product[attribute] in underrep_values:
-                    attribute_match += 1
-            
-            # Check if this attribute value is not overrepresented
-            if attribute in recommendations['overrepresented_attributes']:
-                overrep_values = recommendations['overrepresented_attributes'][attribute][attribute].tolist()
-                if product[attribute] not in overrep_values:
-                    attribute_match += 1
-        
-        # If product matches at least 2 attribute criteria, maintain it
-        if attribute_match >= 2:
-            skus_to_maintain.append({
-                'SKU': product['SKU'] if 'SKU' in product else f'Brand ID: {product["CR_BrandId"]}',
-                'CR_BrandId': product['CR_BrandId'],
-                'Volume': product['DF_Vol'],
-                'Attributes': {attr: product[attr] for attr in ['Flavor', 'Taste', 'Thickness', 'Length'] 
-                              if attr in product and pd.notna(product[attr])},
-                'Attribute_Match': attribute_match
-            })
-    
-    # Sort by volume (descending)
-    skus_to_maintain = sorted(skus_to_maintain, key=lambda x: x['Volume'], reverse=True)
-    recommendations['skus_to_maintain'] = skus_to_maintain
-    
-    # Identify SKUs to remove (poor performers in overrepresented segments)
-    skus_to_remove = []
-    
-    for idx, product in pmi_products.iterrows():
-        # Skip products that are already in the maintain list
-        if any(product['CR_BrandId'] == maintain_sku['CR_BrandId'] for maintain_sku in skus_to_maintain):
-            continue
-        
-        remove = False
-        attribute_mismatch = 0
-        
-        # Count how many attributes are in overrepresented segments
-        for attribute in ['Flavor', 'Taste', 'Thickness', 'Length']:
-            if attribute not in product or pd.isna(product[attribute]):
-                continue
-                
-            # Check if this attribute value is overrepresented
-            if attribute in recommendations['overrepresented_attributes']:
-                overrep_values = recommendations['overrepresented_attributes'][attribute][attribute].tolist()
-                if product[attribute] in overrep_values:
-                    attribute_mismatch += 1
-        
-        # If product matches at least 2 overrepresented attributes, consider for removal
-        if attribute_mismatch >= 2:
-            # Check if it's a poor performer
-            if top_90_pct is not None and product['CR_BrandId'] not in top_90_pct['CR_BrandId'].values:
-                remove = True
-            
-            if remove:
-                skus_to_remove.append({
-                    'SKU': product['SKU'] if 'SKU' in product else f'Brand ID: {product["CR_BrandId"]}',
-                    'CR_BrandId': product['CR_BrandId'],
-                    'Volume': product['DF_Vol'],
-                    'Attributes': {attr: product[attr] for attr in ['Flavor', 'Taste', 'Thickness', 'Length'] 
-                                  if attr in product and pd.notna(product[attr])},
-                    'Attribute_Mismatch': attribute_mismatch
-                })
-    
-    # Sort by volume (ascending, so lowest volume first)
-    skus_to_remove = sorted(skus_to_remove, key=lambda x: x['Volume'])
-    recommendations['skus_to_remove'] = skus_to_remove
-    
-    # Identify attribute combinations for new SKUs
-    attribute_combinations = []
-    
-    # Get top underrepresented attribute values for each attribute
-    top_underrep = {}
-    for attribute, underrep_df in recommendations['underrepresented_attributes'].items():
-        # Take top 2 most underrepresented values
-        top_values = underrep_df.sort_values('Gap', ascending=False).head(2)[attribute].tolist()
-        top_underrep[attribute] = top_values
-    
-    # Generate combinations of underrepresented attributes
-    if len(top_underrep) >= 2:
-        # Start with the most underrepresented attributes
-        priority_attributes = sorted(top_underrep.keys(), 
-                                    key=lambda a: recommendations['underrepresented_attributes'][a]['Gap'].max(), 
-                                    reverse=True)
-        
-        # Take the top 2 most underrepresented attributes
-        primary_attrs = priority_attributes[:2]
-        
-        # Generate combinations
-        for attr1 in primary_attrs:
-            for val1 in top_underrep[attr1]:
-                for attr2 in [a for a in priority_attributes if a != attr1]:
-                    for val2 in top_underrep[attr2]:
-                        # Check if this combination already exists in PMI portfolio
-                        exists = False
-                        for idx, product in pmi_products.iterrows():
-                            if (attr1 in product and product[attr1] == val1 and 
-                                attr2 in product and product[attr2] == val2):
-                                exists = True
-                                break
-                        
-                        if not exists:
-                            # Check competitor products for this combination
-                            comp_products = jj_df[(jj_df['TMO'] != 'PMI') & 
-                                                (jj_df[attr1] == val1) & 
-                                                (jj_df[attr2] == val2)]
-                            
-                            if not comp_products.empty:
-                                # Calculate total volume for this combination in competitor portfolio
-                                volume = comp_products['DF_Vol'].sum()
-                                
-                                attribute_combinations.append({
-                                    'Combination': {attr1: val1, attr2: val2},
-                                    'Gap1': float(recommendations['underrepresented_attributes'][attr1][recommendations['underrepresented_attributes'][attr1][attr1] == val1]['Gap'].iloc[0]),
-                                    'Gap2': float(recommendations['underrepresented_attributes'][attr2][recommendations['underrepresented_attributes'][attr2][attr2] == val2]['Gap'].iloc[0]),
-                                    'Total_Gap': float(recommendations['underrepresented_attributes'][attr1][recommendations['underrepresented_attributes'][attr1][attr1] == val1]['Gap'].iloc[0] + 
-                                                    recommendations['underrepresented_attributes'][attr2][recommendations['underrepresented_attributes'][attr2][attr2] == val2]['Gap'].iloc[0]),
-                                    'Comp_Volume': volume,
-                                    'Comp_SKUs': len(comp_products),
-                                    'Comp_Products': comp_products['SKU'].tolist() if 'SKU' in comp_products else comp_products['CR_BrandId'].tolist()
-                                })
-    
-    # Sort by total gap and competitor volume
-    if attribute_combinations:
-        attribute_combinations = sorted(attribute_combinations, 
-                                      key=lambda x: (x['Total_Gap'], x['Comp_Volume']), 
-                                      reverse=True)
-    
-    recommendations['attribute_combinations_needed'] = attribute_combinations
-    
-    # Generate specific SKUs to add
-    for combo in attribute_combinations[:5]:  # Take top 5 combinations
-        # Get attribute values
-        attrs = combo['Combination']
-        
-        # Generate SKU recommendation
-        sku_rec = {
-            'Attribute_Combination': attrs,
-            'Total_Gap': combo['Total_Gap'],
-            'Market_Potential': combo['Comp_Volume'],
-            'Competitor_Products': combo['Comp_Products'][:3] if len(combo['Comp_Products']) > 3 else combo['Comp_Products']
+
+    for attr in attributes:
+        dist_key = f"{attr}_Distribution"
+        if dist_key in location_data:
+            df = location_data[dist_key]
+
+            # Check for PMI vs Ideal gaps
+            if 'PMI_vs_Ideal_Gap' in df.columns:
+                # Identify underrepresented segments
+                under_rep = df[df['PMI_vs_Ideal_Gap'] < -5].sort_values('PMI_vs_Ideal_Gap')
+                for _, row in under_rep.iterrows():
+                    gap_analysis['underrepresented'].append({
+                        'attribute': attr,
+                        'value': row[attr],
+                        'pmi_pct': row['PMI_Volume_Percentage'] if 'PMI_Volume_Percentage' in df.columns else 0,
+                        'ideal_pct': row['Ideal_Percentage'],
+                        'gap': row['PMI_vs_Ideal_Gap'],
+                        'priority': abs(row['PMI_vs_Ideal_Gap']) * (row['Ideal_Percentage'] / 100)  # Weighted priority
+                    })
+
+                # Identify overrepresented segments
+                over_rep = df[df['PMI_vs_Ideal_Gap'] > 5].sort_values('PMI_vs_Ideal_Gap', ascending=False)
+                for _, row in over_rep.iterrows():
+                    gap_analysis['overrepresented'].append({
+                        'attribute': attr,
+                        'value': row[attr],
+                        'pmi_pct': row['PMI_Volume_Percentage'] if 'PMI_Volume_Percentage' in df.columns else 0,
+                        'ideal_pct': row['Ideal_Percentage'],
+                        'gap': row['PMI_vs_Ideal_Gap'],
+                        'priority': row['PMI_vs_Ideal_Gap'] * (row['PMI_Volume_Percentage'] / 100)  # Weighted priority
+                    })
+
+    # Sort by priority
+    gap_analysis['underrepresented'] = sorted(gap_analysis['underrepresented'],
+                                              key=lambda x: x['priority'], reverse=True)
+    gap_analysis['overrepresented'] = sorted(gap_analysis['overrepresented'],
+                                             key=lambda x: x['priority'], reverse=True)
+
+    return gap_analysis
+
+
+def identify_competitor_benchmark_products(location_data, gap_analysis):
+    """
+    Identify top competitor products in underrepresented segments.
+
+    Args:
+        location_data (dict): Dictionary containing location data
+        gap_analysis (dict): Portfolio gap analysis
+
+    Returns:
+        dict: Competitor benchmark products
+    """
+    benchmarks = {}
+
+    for gap in gap_analysis['underrepresented']:
+        attr = gap['attribute']
+        value = gap['value']
+
+        # Look for top product data
+        top_key = f"{attr}_Top_Products"
+        if top_key in location_data:
+            top_products = location_data[top_key]
+
+            # Filter for the specific attribute value and competitor products
+            competitors = top_products[(top_products[attr] == value) &
+                                       (top_products['TMO'] != 'PMI')]
+
+            if not competitors.empty:
+                # Sort by volume/share and get top competitors
+                if 'Volume' in competitors.columns:
+                    competitors = competitors.sort_values('Volume', ascending=False)
+                elif 'Share_of_Segment' in competitors.columns:
+                    competitors = competitors.sort_values('Share_of_Segment', ascending=False)
+
+                # Store top competitors
+                benchmarks[f"{attr}_{value}"] = competitors.head(3).to_dict('records')
+
+    return benchmarks
+
+
+def generate_sku_recommendations(location, gap_analysis, benchmarks, top_products_df):
+    """
+    Generate specific SKU recommendations.
+
+    Args:
+        location (str): Location name
+        gap_analysis (dict): Portfolio gap analysis
+        benchmarks (dict): Competitor benchmark products
+        top_products_df (DataFrame): Top products data
+
+    Returns:
+        dict: SKU recommendations
+    """
+    recommendations = {
+        'location': location,
+        'add': [],
+        'remove': [],
+        'adjust': []
+    }
+
+    # Process underrepresented segments (add recommendations)
+    for gap in gap_analysis['underrepresented'][:5]:  # Focus on top 5 underrepresented segments
+        attr = gap['attribute']
+        value = gap['value']
+
+        benchmark_key = f"{attr}_{value}"
+
+        # Add new SKU recommendation
+        rec = {
+            'action': 'add',
+            'attribute': attr,
+            'value': value,
+            'gap': gap['gap'],
+            'priority': gap['priority'],
+            'rationale': f"Significantly underrepresented segment with {abs(gap['gap']):.1f}% gap",
+            'description': f"Add new SKU with {attr}: {value}"
         }
-        
-        # Add to recommendations
-        recommendations['skus_to_add'].append(sku_rec)
-    
+
+        # Add benchmark products if available
+        if benchmark_key in benchmarks and benchmarks[benchmark_key]:
+            top_competitor = benchmarks[benchmark_key][0]
+            rec['benchmark'] = {
+                'product_name': top_competitor.get('Product_Name', ''),
+                'tmo': top_competitor.get('TMO', ''),
+                'volume': top_competitor.get('Volume', 0),
+                'share': top_competitor.get('Share_of_Segment', 0)
+            }
+            rec[
+                'detailed_recommendation'] = f"Consider adding product similar to competitor benchmark: {top_competitor.get('Product_Name', '')}"
+
+        recommendations['add'].append(rec)
+
+    # Process overrepresented segments (remove recommendations)
+    for gap in gap_analysis['overrepresented'][:3]:  # Focus on top 3 overrepresented segments
+        attr = gap['attribute']
+        value = gap['value']
+
+        # Find PMI products in this segment
+        pmi_products = top_products_df[
+            (top_products_df[attr] == value) &
+            (top_products_df['TMO'] == 'PMI')
+            ]
+
+        if not pmi_products.empty:
+            # Sort by volume (ascending) to identify potential removals
+            if 'DF_Vol' in pmi_products.columns:
+                pmi_products = pmi_products.sort_values('DF_Vol')
+
+            # Get lowest volume products
+            for _, product in pmi_products.head(2).iterrows():
+                product_name = product.get('SKU', product.get('CR_BrandId', ''))
+                volume = product.get('DF_Vol', 0)
+
+                rec = {
+                    'action': 'remove',
+                    'attribute': attr,
+                    'value': value,
+                    'gap': gap['gap'],
+                    'priority': gap['priority'],
+                    'product_id': product.get('CR_BrandId', ''),
+                    'product_name': product_name,
+                    'volume': volume,
+                    'rationale': f"Overrepresented segment with {gap['gap']:.1f}% gap",
+                    'description': f"Consider removing {product_name} ({attr}: {value})"
+                }
+
+                recommendations['remove'].append(rec)
+
+    # Generate adjustment recommendations for partial misalignments
+    for gap in gap_analysis['underrepresented'][5:8]:  # Focus on moderate underrepresented segments
+        attr = gap['attribute']
+        value = gap['value']
+
+        # Find existing PMI products in complementary segments
+        top_pmi_products = top_products_df[top_products_df['TMO'] == 'PMI']
+
+        if not top_pmi_products.empty:
+            # Get highest volume PMI products
+            if 'DF_Vol' in top_pmi_products.columns:
+                top_pmi_products = top_pmi_products.sort_values('DF_Vol', ascending=False)
+
+            # Recommend product adjustments
+            for _, product in top_pmi_products.head(2).iterrows():
+                product_name = product.get('SKU', product.get('CR_BrandId', ''))
+                current_value = product.get(attr, '')
+
+                if current_value != value:  # Only suggest changing to the underrepresented value
+                    rec = {
+                        'action': 'adjust',
+                        'attribute': attr,
+                        'current_value': current_value,
+                        'target_value': value,
+                        'gap': gap['gap'],
+                        'priority': gap['priority'] * 0.8,  # Lower priority than new additions
+                        'product_id': product.get('CR_BrandId', ''),
+                        'product_name': product_name,
+                        'volume': product.get('DF_Vol', 0),
+                        'rationale': f"Opportunity to address {abs(gap['gap']):.1f}% gap through product adjustment",
+                        'description': f"Adjust {product_name} from {attr}: {current_value} to {value}"
+                    }
+
+                    recommendations['adjust'].append(rec)
+
+    # Sort recommendations by priority
+    recommendations['add'] = sorted(recommendations['add'], key=lambda x: x['priority'], reverse=True)
+    recommendations['remove'] = sorted(recommendations['remove'], key=lambda x: x['priority'], reverse=True)
+    recommendations['adjust'] = sorted(recommendations['adjust'], key=lambda x: x['priority'], reverse=True)
+
     return recommendations
 
-def visualize_sku_recommendations(recommendations, output_dir=None):
-    """
-    Create visualizations for SKU recommendations.
-    
-    Args:
-        recommendations (dict): Recommendations from generate_sku_recommendations function
-        output_dir (str, optional): Directory to save output visualizations
-    
-    Returns:
-        dict: Dictionary of matplotlib figures
-    """
-    figures = {}
-    
-    # 1. Visualize underrepresented vs. overrepresented attributes
-    attr_fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    axes = axes.flatten()
-    
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    attr_data = []
-    
-    for i, attribute in enumerate(attributes):
-        # Get underrepresented values
-        underrep_values = []
-        underrep_gaps = []
-        if attribute in recommendations['underrepresented_attributes']:
-            underrep_df = recommendations['underrepresented_attributes'][attribute]
-            underrep_values = underrep_df[attribute].tolist()
-            underrep_gaps = underrep_df['Gap'].tolist()
-        
-        # Get overrepresented values
-        overrep_values = []
-        overrep_gaps = []
-        if attribute in recommendations['overrepresented_attributes']:
-            overrep_df = recommendations['overrepresented_attributes'][attribute]
-            overrep_values = overrep_df[attribute].tolist()
-            overrep_gaps = overrep_df['Gap'].tolist()
-        
-        # Combine data
-        attr_values = underrep_values + overrep_values
-        gaps = underrep_gaps + overrep_gaps
-        colors = ['green'] * len(underrep_values) + ['red'] * len(overrep_values)
-        
-        # Sort by absolute gap value
-        if attr_values:
-            sorted_idx = np.argsort(np.abs(gaps))[::-1]  # Sort by absolute gap value (descending)
-            attr_values = [attr_values[i] for i in sorted_idx]
-            gaps = [gaps[i] for i in sorted_idx]
-            colors = [colors[i] for i in sorted_idx]
-            
-            # Create horizontal bar chart
-            ax = axes[i]
-            bars = ax.barh(attr_values, gaps, color=colors)
-            
-            # Add value labels
-            for bar in bars:
-                width = bar.get_width()
-                label_x = width + 1 if width >= 0 else width - 5
-                ax.text(label_x, bar.get_y() + bar.get_height()/2, 
-                       f"{width:.1f}%", va='center', 
-                       color='green' if width >= 0 else 'red',
-                       fontweight='bold')
-            
-            # Add dividing line at zero
-            ax.axvline(x=0, color='black', linestyle='-', linewidth=0.5)
-            
-            # Set title and labels
-            ax.set_title(f"{attribute} Gaps (Underrepresented vs. Overrepresented)")
-            ax.set_xlabel("Gap (%)")
-            
-            # Track data for summary
-            for val, gap in zip(attr_values, gaps):
-                attr_data.append({
-                    'Attribute': attribute,
-                    'Value': val,
-                    'Gap': gap,
-                    'Status': 'Underrepresented' if gap > 0 else 'Overrepresented'
-                })
-    
-    plt.tight_layout()
-    figures['attribute_gaps'] = attr_fig
-    
-    # 2. Visualize SKUs to maintain vs. remove
-    if recommendations['skus_to_maintain'] or recommendations['skus_to_remove']:
-        sku_fig, ax = plt.subplots(figsize=(12, 8))
-        
-        # Prepare data
-        maintain_skus = recommendations['skus_to_maintain']
-        remove_skus = recommendations['skus_to_remove']
-        
-        # Create bar data
-        sku_names = [sku['SKU'] if len(str(sku['SKU'])) < 30 else str(sku['SKU'])[:27] + '...' 
-                    for sku in maintain_skus + remove_skus]
-        volumes = [sku['Volume'] for sku in maintain_skus + remove_skus]
-        colors = ['green'] * len(maintain_skus) + ['red'] * len(remove_skus)
-        
-        # Sort by volume (for better visualization)
-        if sku_names:
-            sorted_idx = np.argsort(volumes)[::-1]  # Sort by volume (descending)
-            sku_names = [sku_names[i] for i in sorted_idx]
-            volumes = [volumes[i] for i in sorted_idx]
-            colors = [colors[i] for i in sorted_idx]
-            
-            # Create horizontal bar chart
-            bars = ax.barh(sku_names, volumes, color=colors)
-            
-            # Add value labels
-            for bar in bars:
-                width = bar.get_width()
-                ax.text(width + 0.1 * max(volumes), bar.get_y() + bar.get_height()/2, 
-                       f"{width:,.0f}", va='center')
-            
-            # Set title and labels
-            ax.set_title("SKUs to Maintain (Green) vs. Remove (Red)")
-            ax.set_xlabel("Volume")
-            ax.set_ylabel("SKU")
-            
-            # Add legend
-            from matplotlib.patches import Patch
-            legend_elements = [
-                Patch(facecolor='green', label='Maintain'),
-                Patch(facecolor='red', label='Remove')
-            ]
-            ax.legend(handles=legend_elements, loc='lower right')
-        
-        plt.tight_layout()
-        figures['sku_recommendations'] = sku_fig
-    
-    # 3. Visualize attribute combinations for new SKUs
-    if recommendations['attribute_combinations_needed']:
-        combo_fig, ax = plt.subplots(figsize=(12, 8))
-        
-        # Prepare data
-        combos = recommendations['attribute_combinations_needed'][:10]  # Top 10 combinations
-        
-        # Create bar data
-        combo_names = [f"{', '.join([f'{k}: {v}' for k, v in combo['Combination'].items()])}" 
-                      for combo in combos]
-        gaps = [combo['Total_Gap'] for combo in combos]
-        volumes = [combo['Comp_Volume'] for combo in combos]
-        
-        # Normalize volumes for bubble size
-        if volumes:
-            max_volume = max(volumes)
-            norm_volumes = [v / max_volume * 1000 for v in volumes] if max_volume > 0 else [500] * len(volumes)
-        else:
-            norm_volumes = []
-        
-        # Create scatter plot with bubble size representing market potential
-        if combo_names:
-            # Create bar chart for gaps
-            y_pos = np.arange(len(combo_names))
-            ax.barh(y_pos, gaps, color='green', alpha=0.5)
-            
-            # Add volume bubbles
-            for i, (gap, vol, norm_vol) in enumerate(zip(gaps, volumes, norm_volumes)):
-                ax.scatter(gap, i, s=norm_vol, color='blue', alpha=0.7, edgecolors='black')
-                
-                # Add volume label
-                ax.text(gap + 0.1 * max(gaps), i, f"Vol: {vol:,.0f}", va='center')
-            
-            # Set title and labels
-            ax.set_title("Recommended Attribute Combinations for New SKUs")
-            ax.set_xlabel("Total Gap (%)")
-            ax.set_yticks(y_pos)
-            ax.set_yticklabels(combo_names)
-            
-            # Add a second axis for volume scale
-            ax2 = ax.twinx()
-            ax2.set_ylim(ax.get_ylim())
-            ax2.set_yticks([])
-            
-            # Add legend for bubble size
-            from matplotlib.legend_handler import HandlerPatch
-            import matplotlib.patches as mpatches
-            
-            class HandlerEllipse(HandlerPatch):
-                def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
-                    center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
-                    p = mpatches.Ellipse(xy=center, width=width + xdescent, height=height + ydescent)
-                    self.update_prop(p, orig_handle, legend)
-                    p.set_transform(trans)
-                    return [p]
-            
-            size_labels = [int(max_volume * 0.25), int(max_volume * 0.5), int(max_volume)]
-            size_bubbles = [250, 500, 1000]
-            
-            bubble_handles = [mpatches.Circle((0, 0), radius=np.sqrt(s) / 30) for s in size_bubbles]
-            bubble_labels = [f"{v:,}" for v in size_labels]
-            
-            ax2.legend(bubble_handles, bubble_labels, 
-                      title="Competitor Volume", frameon=True,
-                      loc='upper right', handler_map={mpatches.Circle: HandlerEllipse()})
-        
-        plt.tight_layout()
-        figures['attribute_combinations'] = combo_fig
-    
-    # 4. Create summary visualization
-    summary_fig, ax = plt.subplots(figsize=(12, 8))
-    
-    # Prepare summary data
-    summary_data = []
-    
-    # Count underrepresented and overrepresented attributes
-    for attr in attributes:
-        underrep_count = len(recommendations['underrepresented_attributes'].get(attr, pd.DataFrame()).index)
-        overrep_count = len(recommendations['overrepresented_attributes'].get(attr, pd.DataFrame()).index)
-        
-        summary_data.append({
-            'Attribute': attr,
-            'Underrepresented': underrep_count,
-            'Overrepresented': overrep_count
-        })
-    
-    # Create a DataFrame for easier plotting
-    summary_df = pd.DataFrame(summary_data)
-    
-    # Set up the axes
-    x = np.arange(len(attributes))
-    width = 0.35
-    
-    # Create grouped bar chart
-    ax.bar(x - width/2, summary_df['Underrepresented'], width, label='Underrepresented')
-    ax.bar(x + width/2, summary_df['Overrepresented'], width, label='Overrepresented')
-    
-    # Add text at the top of the bars
-    for i, v in enumerate(summary_df['Underrepresented']):
-        ax.text(i - width/2, v + 0.1, str(v), ha='center')
-    
-    for i, v in enumerate(summary_df['Overrepresented']):
-        ax.text(i + width/2, v + 0.1, str(v), ha='center')
-    
-    # Customize the chart
-    ax.set_title('Summary of Attribute Gaps')
-    ax.set_xticks(x)
-    ax.set_xticklabels(attributes)
-    ax.legend()
-    
-    # Add recommendations summary
-    text_str = f"""
-    Recommendation Summary:
-    
-    • SKUs to maintain: {len(recommendations['skus_to_maintain'])}
-    • SKUs to remove: {len(recommendations['skus_to_remove'])}
-    • New SKU combinations: {len(recommendations['attribute_combinations_needed'])}
-    
-    Most underrepresented segments:
-    """
-    
-    # Add top underrepresented segments
-    top_gaps = []
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            top_val = df.iloc[0]
-            top_gaps.append((attr, top_val[attr], top_val['Gap']))
-    
-    # Sort by gap
-    top_gaps = sorted(top_gaps, key=lambda x: x[2], reverse=True)
-    
-    for attr, val, gap in top_gaps[:3]:  # Top 3 gaps
-        text_str += f"• {attr}: {val} (Gap: {gap:.1f}%)\n"
-    
-    # Add the text box
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    ax.text(0.97, 0.03, text_str, transform=ax.transAxes, fontsize=10,
-           verticalalignment='bottom', horizontalalignment='right', bbox=props)
-    
-    plt.tight_layout()
-    figures['summary'] = summary_fig
-    
-    # Save figures if output directory is specified
-    if output_dir:
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-        
-        for name, fig in figures.items():
-            fig.savefig(os.path.join(output_dir, f"{name}.png"), dpi=300, bbox_inches='tight')
-            print(f"Saved {name}.png to {output_dir}")
-    
-    return figures
 
-def create_phased_implementation_plan(recommendations):
+def create_recommendation_visualization(recommendations):
     """
-    Create a phased implementation plan for the recommendations.
-    
+    Create visualization for SKU recommendations.
+
     Args:
-        recommendations (dict): Recommendations from generate_sku_recommendations function
-    
+        recommendations (dict): SKU recommendations
+
     Returns:
-        dict: Phased implementation plan
+        matplotlib.figure.Figure: The figure containing the visualization
+    """
+    # Create figure with multiple subplots
+    fig, axes = plt.subplots(3, 1, figsize=(12, 14))
+
+    # 1. Create "Add" recommendations visualization
+    if recommendations['add']:
+        # Extract data for visualization
+        attrs = [rec['attribute'] for rec in recommendations['add']]
+        values = [rec['value'] for rec in recommendations['add']]
+        gaps = [abs(rec['gap']) for rec in recommendations['add']]
+        priorities = [rec['priority'] * 20 for rec in recommendations['add']]  # Scale for visibility
+
+        # Create scatter plot
+        axes[0].scatter(range(len(attrs)), gaps, s=priorities, alpha=0.7, color='green')
+
+        # Add text annotations
+        for i, (attr, value, gap) in enumerate(zip(attrs, values, gaps)):
+            axes[0].annotate(f"{attr}: {value}\nGap: {gap:.1f}%",
+                             xy=(i, gap),
+                             xytext=(5, 5),
+                             textcoords="offset points",
+                             fontsize=9,
+                             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="green", alpha=0.8))
+
+        # Set labels and title
+        axes[0].set_title("Add Recommendations (New SKUs)", fontsize=14)
+        axes[0].set_xticks(range(len(attrs)))
+        axes[0].set_xticklabels([f"{a}: {v}" for a, v in zip(attrs, values)], rotation=45, ha='right')
+        axes[0].set_ylabel("Gap Magnitude (%)", fontsize=12)
+        axes[0].grid(True, linestyle='--', alpha=0.7)
+    else:
+        axes[0].text(0.5, 0.5, "No Add Recommendations", ha='center', va='center', fontsize=14)
+        axes[0].set_title("Add Recommendations (New SKUs)", fontsize=14)
+
+    # 2. Create "Remove" recommendations visualization
+    if recommendations['remove']:
+        # Extract data for visualization
+        products = [rec['product_name'] for rec in recommendations['remove']]
+        attrs = [f"{rec['attribute']}: {rec['value']}" for rec in recommendations['remove']]
+        gaps = [rec['gap'] for rec in recommendations['remove']]
+        volumes = [rec['volume'] / 1000 for rec in recommendations['remove']]  # Convert to thousands
+
+        # Create bar chart
+        bars = axes[1].barh(range(len(products)), volumes, color='red', alpha=0.7)
+
+        # Add text annotations
+        for i, (product, attr, gap, volume) in enumerate(zip(products, attrs, gaps, volumes)):
+            axes[1].annotate(f"{product}\n{attr}\nGap: +{gap:.1f}%",
+                             xy=(volume / 2, i),
+                             ha='center', va='center',
+                             color='white', fontweight='bold',
+                             fontsize=9)
+
+        # Set labels and title
+        axes[1].set_title("Remove Recommendations (Overrepresented SKUs)", fontsize=14)
+        axes[1].set_yticks(range(len(products)))
+        axes[1].set_yticklabels(products)
+        axes[1].set_xlabel("Volume (thousands)", fontsize=12)
+        axes[1].grid(True, linestyle='--', alpha=0.7)
+    else:
+        axes[1].text(0.5, 0.5, "No Remove Recommendations", ha='center', va='center', fontsize=14)
+        axes[1].set_title("Remove Recommendations (Overrepresented SKUs)", fontsize=14)
+
+    # 3. Create "Adjust" recommendations visualization
+    if recommendations['adjust']:
+        # Extract data for visualization
+        products = [rec['product_name'] for rec in recommendations['adjust']]
+        adjustments = [f"{rec['attribute']}: {rec['current_value']} → {rec['target_value']}" for rec in
+                       recommendations['adjust']]
+        gaps = [abs(rec['gap']) for rec in recommendations['adjust']]
+
+        # Create horizontal bar chart
+        y_pos = range(len(products))
+        bars = axes[2].barh(y_pos, gaps, color='orange', alpha=0.7)
+
+        # Add text annotations
+        for i, (product, adjustment, gap) in enumerate(zip(products, adjustments, gaps)):
+            axes[2].annotate(f"{product}\n{adjustment}",
+                             xy=(gap / 2, i),
+                             ha='center', va='center',
+                             color='black', fontweight='bold',
+                             fontsize=9)
+
+        # Set labels and title
+        axes[2].set_title("Adjust Recommendations (Existing SKUs)", fontsize=14)
+        axes[2].set_yticks(y_pos)
+        axes[2].set_yticklabels(products)
+        axes[2].set_xlabel("Gap Magnitude (%)", fontsize=12)
+        axes[2].grid(True, linestyle='--', alpha=0.7)
+    else:
+        axes[2].text(0.5, 0.5, "No Adjust Recommendations", ha='center', va='center', fontsize=14)
+        axes[2].set_title("Adjust Recommendations (Existing SKUs)", fontsize=14)
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
+    plt.suptitle(f"Portfolio Optimization Recommendations for {recommendations['location']}", fontsize=16, y=0.98)
+
+    return fig
+
+
+def generate_implementation_plan(recommendations):
+    """
+    Generate phased implementation plan for recommendations.
+
+    Args:
+        recommendations (dict): SKU recommendations
+
+    Returns:
+        dict: Implementation plan with short, medium, and long-term actions
     """
     implementation_plan = {
-        'short_term': {
-            'description': 'Actions that can be implemented immediately within existing constraints',
-            'skus_to_maintain': [],
-            'skus_to_remove': [],
-            'attribute_focus': {}
-        },
-        'medium_term': {
-            'description': 'Actions that require some planning and adjustment',
-            'skus_to_add': [],
-            'skus_to_remove': [],
-            'attribute_focus': {}
-        },
-        'long_term': {
-            'description': 'Strategic actions for comprehensive portfolio optimization',
-            'skus_to_add': [],
-            'strategy_shifts': [],
-            'attribute_focus': {}
-        }
+        'location': recommendations['location'],
+        'short_term': [],
+        'medium_term': [],
+        'long_term': []
     }
-    
-    # 1. Short-term actions (immediate)
-    
-    # SKUs to maintain (straightforward)
-    implementation_plan['short_term']['skus_to_maintain'] = recommendations['skus_to_maintain'][:5]  # Top 5 SKUs
-    
-    # Low-volume SKUs to remove
-    low_vol_remove = [sku for sku in recommendations['skus_to_remove'] 
-                     if sku['Volume'] < np.percentile([s['Volume'] for s in recommendations['skus_to_remove']], 25) 
-                     if recommendations['skus_to_remove']]
-    implementation_plan['short_term']['skus_to_remove'] = low_vol_remove
-    
-    # Short-term attribute focus
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            # Get top underrepresented attribute values
-            top_vals = df.sort_values('Gap', ascending=False).head(2)
-            implementation_plan['short_term']['attribute_focus'][attr] = top_vals[attr].tolist()
-    
-    # 2. Medium-term actions (3-6 months)
-    
-    # SKUs to add (based on attribute combinations)
-    if recommendations['attribute_combinations_needed']:
-        implementation_plan['medium_term']['skus_to_add'] = recommendations['attribute_combinations_needed'][:3]  # Top 3 combinations
-    
-    # Additional SKUs to remove
-    remaining_remove = [sku for sku in recommendations['skus_to_remove'] 
-                       if sku not in low_vol_remove]
-    implementation_plan['medium_term']['skus_to_remove'] = remaining_remove
-    
-    # Medium-term attribute focus (all significant gaps)
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            # Get all attribute values with gap > 10%
-            sig_vals = df[df['Gap'] > 10]
-            if not sig_vals.empty:
-                implementation_plan['medium_term']['attribute_focus'][attr] = sig_vals[attr].tolist()
-    
-    # 3. Long-term actions (6+ months)
-    
-    # All recommended SKUs to add
-    implementation_plan['long_term']['skus_to_add'] = recommendations['attribute_combinations_needed']
-    
-    # Strategic shifts
-    
-    # Identify major attribute categories to focus on
-    major_gaps = {}
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            # Calculate total gap for this attribute
-            total_gap = df['Gap'].sum()
-            major_gaps[attr] = total_gap
-    
-    # Sort attributes by total gap
-    sorted_attrs = sorted(major_gaps.items(), key=lambda x: x[1], reverse=True)
-    
-    # Add strategic shifts
-    for attr, gap in sorted_attrs:
-        implementation_plan['long_term']['strategy_shifts'].append({
-            'attribute': attr,
-            'total_gap': gap,
-            'description': f"Shift portfolio towards underrepresented {attr} segments"
+
+    # Prioritize and assign recommendations to different phases
+
+    # Short-term: Quick adjustments with immediate impact
+    # - High priority removals of overrepresented SKUs
+    # - Minor adjustments to existing products
+    for rec in recommendations['remove'][:2]:  # Top 2 removals
+        implementation_plan['short_term'].append({
+            'action': 'remove',
+            'description': rec['description'],
+            'product_name': rec['product_name'],
+            'impact': f"Reduce overrepresentation of {rec['attribute']}: {rec['value']}",
+            'priority': 'High',
+            'timeline': '1-3 months'
         })
-    
-    # Long-term attribute focus (comprehensive)
-    for attr in ['Flavor', 'Taste', 'Thickness', 'Length']:
-        if attr in recommendations['underrepresented_attributes']:
-            implementation_plan['long_term']['attribute_focus'][attr] = recommendations['underrepresented_attributes'][attr][attr].tolist()
-    
+
+    for rec in recommendations['adjust'][:2]:  # Top 2 adjustments
+        implementation_plan['short_term'].append({
+            'action': 'adjust',
+            'description': rec['description'],
+            'product_name': rec['product_name'],
+            'impact': f"Address gap of {abs(rec['gap']):.1f}% for {rec['attribute']}: {rec['target_value']}",
+            'priority': 'Medium',
+            'timeline': '2-4 months'
+        })
+
+    # Medium-term: New product introductions based on existing capabilities
+    for rec in recommendations['add'][:3]:  # Top 3 additions
+        implementation_plan['medium_term'].append({
+            'action': 'add',
+            'description': rec['description'],
+            'attribute': f"{rec['attribute']}: {rec['value']}",
+            'impact': f"Address gap of {abs(rec['gap']):.1f}%",
+            'priority': 'High',
+            'timeline': '4-8 months',
+            'benchmark': rec.get('benchmark', {}).get('product_name', 'N/A')
+        })
+
+    for rec in recommendations['adjust'][2:]:  # Remaining adjustments
+        implementation_plan['medium_term'].append({
+            'action': 'adjust',
+            'description': rec['description'],
+            'product_name': rec['product_name'],
+            'impact': f"Address gap of {abs(rec['gap']):.1f}% for {rec['attribute']}: {rec['target_value']}",
+            'priority': 'Medium',
+            'timeline': '4-6 months'
+        })
+
+    # Long-term: Strategic portfolio alignment
+    for rec in recommendations['add'][3:]:  # Remaining additions
+        implementation_plan['long_term'].append({
+            'action': 'add',
+            'description': rec['description'],
+            'attribute': f"{rec['attribute']}: {rec['value']}",
+            'impact': f"Address gap of {abs(rec['gap']):.1f}%",
+            'priority': 'Medium',
+            'timeline': '8-12 months',
+            'benchmark': rec.get('benchmark', {}).get('product_name', 'N/A')
+        })
+
+    # Add strategic initiative for long-term portfolio alignment
+    implementation_plan['long_term'].append({
+        'action': 'strategic',
+        'description': f"Conduct comprehensive portfolio review for {recommendations['location']}",
+        'impact': "Holistic alignment of entire portfolio with passenger preferences",
+        'priority': 'High',
+        'timeline': '12-18 months'
+    })
+
     return implementation_plan
 
-def generate_optimization_report(recommendations, implementation_plan):
-    """
-    Generate a comprehensive report for the portfolio optimization.
-    
-    Args:
-        recommendations (dict): Recommendations from generate_sku_recommendations function
-        implementation_plan (dict): Phased implementation plan
-    
-    Returns:
-        str: Formatted report text
-    """
-    report = "JEJU PORTFOLIO OPTIMIZATION REPORT\n"
-    report += "=" * 50 + "\n\n"
-    
-    # 1. Executive Summary
-    report += "EXECUTIVE SUMMARY\n"
-    report += "-" * 30 + "\n\n"
-    
-    # Count recommendations
-    maintain_count = len(recommendations['skus_to_maintain'])
-    remove_count = len(recommendations['skus_to_remove'])
-    add_count = len(recommendations['attribute_combinations_needed'])
-    
-    report += f"This analysis identifies significant portfolio gaps in the Jeju duty-free market, "
-    report += f"with recommendations to maintain {maintain_count} SKUs, remove {remove_count} SKUs, "
-    report += f"and add {add_count} new SKU combinations to better align with passenger preferences.\n\n"
-    
-    # Add key opportunity summary
-    report += "Key Opportunities:\n"
-    
-    # Get top underrepresented segments across all attributes
-    top_gaps = []
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            for _, row in df.head(2).iterrows():  # Top 2 per attribute
-                top_gaps.append((attr, row[attr], row['Gap']))
-    
-    # Sort by gap size
-    top_gaps = sorted(top_gaps, key=lambda x: x[2], reverse=True)
-    
-    for i, (attr, val, gap) in enumerate(top_gaps[:5]):  # Top 5 overall gaps
-        report += f"{i+1}. {attr}: {val} (Gap: {gap:.1f}%)\n"
-    
-    report += "\n"
-    
-    # 2. Current Portfolio Assessment
-    report += "CURRENT PORTFOLIO ASSESSMENT\n"
-    report += "-" * 30 + "\n\n"
-    
-    # Summarize attribute alignment
-    report += "Attribute Alignment Assessment:\n\n"
-    
-    for attr in ['Flavor', 'Taste', 'Thickness', 'Length']:
-        report += f"{attr}:\n"
-        
-        # Underrepresented
-        if attr in recommendations['underrepresented_attributes'] and not recommendations['underrepresented_attributes'][attr].empty:
-            df = recommendations['underrepresented_attributes'][attr]
-            report += "  Underrepresented segments:\n"
-            for _, row in df.iterrows():
-                report += f"    • {row[attr]}: Gap of {row['Gap']:.1f}% (Actual: {row['Actual']:.1f}%, Ideal: {row['Ideal']:.1f}%)\n"
-        
-        # Overrepresented
-        if attr in recommendations['overrepresented_attributes'] and not recommendations['overrepresented_attributes'][attr].empty:
-            df = recommendations['overrepresented_attributes'][attr]
-            report += "  Overrepresented segments:\n"
-            for _, row in df.iterrows():
-                report += f"    • {row[attr]}: Gap of {row['Gap']:.1f}% (Actual: {row['Actual']:.1f}%, Ideal: {row['Ideal']:.1f}%)\n"
-        
-        report += "\n"
-    
-    # 3. SKU Recommendations
-    report += "SKU RECOMMENDATIONS\n"
-    report += "-" * 30 + "\n\n"
-    
-    # SKUs to maintain
-    report += "SKUs to Maintain:\n"
-    for i, sku in enumerate(recommendations['skus_to_maintain'][:10]):  # Top 10
-        attr_str = ", ".join([f"{k}: {v}" for k, v in sku['Attributes'].items()])
-        report += f"{i+1}. {sku['SKU']} (Volume: {sku['Volume']:,.0f}, Attributes: {attr_str})\n"
-    
-    report += "\n"
-    
-    # SKUs to remove
-    report += "SKUs to Consider for Removal:\n"
-    for i, sku in enumerate(recommendations['skus_to_remove'][:10]):  # Top 10
-        attr_str = ", ".join([f"{k}: {v}" for k, v in sku['Attributes'].items()])
-        report += f"{i+1}. {sku['SKU']} (Volume: {sku['Volume']:,.0f}, Attributes: {attr_str})\n"
-    
-    report += "\n"
-    
-    # New SKU recommendations
-    report += "Recommended New Product Combinations:\n"
-    for i, combo in enumerate(recommendations['skus_to_add'][:5]):  # Top 5
-        attr_str = ", ".join([f"{k}: {v}" for k, v in combo['Attribute_Combination'].items()])
-        report += f"{i+1}. {attr_str}\n"
-        report += f"   - Total Gap: {combo['Total_Gap']:.1f}%\n"
-        report += f"   - Market Potential: {combo['Market_Potential']:,.0f} units\n"
-        if combo['Competitor_Products']:
-            report += f"   - Competitor References: {', '.join(str(p) for p in combo['Competitor_Products'])}\n"
-        report += "\n"
-    
-    # 4. Implementation Plan
-    report += "IMPLEMENTATION PLAN\n"
-    report += "-" * 30 + "\n\n"
-    
-    # Short-term
-    report += "Short-Term Actions (0-3 months):\n"
-    report += f"{implementation_plan['short_term']['description']}\n\n"
-    
-    report += "1. Maintain & Support Key SKUs:\n"
-    for i, sku in enumerate(implementation_plan['short_term']['skus_to_maintain']):
-        report += f"   • {sku['SKU']} (Volume: {sku['Volume']:,.0f})\n"
-    
-    report += "\n2. Remove Underperforming SKUs:\n"
-    for i, sku in enumerate(implementation_plan['short_term']['skus_to_remove']):
-        report += f"   • {sku['SKU']} (Volume: {sku['Volume']:,.0f})\n"
-    
-    report += "\n3. Focus on Key Attribute Segments:\n"
-    for attr, values in implementation_plan['short_term']['attribute_focus'].items():
-        report += f"   • {attr}: {', '.join(values)}\n"
-    
-    report += "\n"
-    
-    # Medium-term
-    report += "Medium-Term Actions (3-6 months):\n"
-    report += f"{implementation_plan['medium_term']['description']}\n\n"
-    
-    report += "1. Introduce New SKUs:\n"
-    for i, combo in enumerate(implementation_plan['medium_term']['skus_to_add']):
-        attr_str = ", ".join([f"{k}: {v}" for k, v in combo['Combination'].items()])
-        report += f"   • {attr_str} (Market Potential: {combo['Comp_Volume']:,.0f} units)\n"
-    
-    report += "\n2. Continue Portfolio Rationalization:\n"
-    for i, sku in enumerate(implementation_plan['medium_term']['skus_to_remove']):
-        report += f"   • {sku['SKU']} (Volume: {sku['Volume']:,.0f})\n"
-    
-    report += "\n3. Expand Focus Attribute Segments:\n"
-    for attr, values in implementation_plan['medium_term']['attribute_focus'].items():
-        report += f"   • {attr}: {', '.join(values)}\n"
-    
-    report += "\n"
-    
-    # Long-term
-    report += "Long-Term Strategy (6+ months):\n"
-    report += f"{implementation_plan['long_term']['description']}\n\n"
-    
-    report += "1. Strategic Portfolio Shifts:\n"
-    for shift in implementation_plan['long_term']['strategy_shifts']:
-        report += f"   • {shift['description']} (Total Gap: {shift['total_gap']:.1f}%)\n"
-    
-    report += "\n2. Complete Attribute Optimization:\n"
-    for attr, values in implementation_plan['long_term']['attribute_focus'].items():
-        report += f"   • {attr}: {', '.join(values)}\n"
-    
-    report += "\n"
-    
-    # 5. Expected Impact
-    report += "EXPECTED IMPACT\n"
-    report += "-" * 30 + "\n\n"
-    
-    # Calculate potential market share gain based on gaps
-    total_gap = 0
-    for attr, df in recommendations['underrepresented_attributes'].items():
-        if not df.empty:
-            total_gap += df['Gap'].sum()
-    
-    # Estimate potential market share gain
-    # This is a simplified estimate - assume we can capture half of the identified gaps
-    potential_gain = total_gap * 0.5
-    
-    report += f"Potential Market Share Impact:\n"
-    report += f"• Current estimated PMI market share: ~11.4%\n"
-    report += f"• Total identified portfolio gaps: {total_gap:.1f}%\n"
-    report += f"• Conservative market share gain potential: {potential_gain:.1f}%\n"
-    report += f"• Potential future market share: {11.4 + potential_gain:.1f}%\n\n"
-    
-    report += "This represents a projected {:.1f}% increase in market share by addressing the identified portfolio gaps.".format((potential_gain / 11.4) * 100)
-    
-    return report
 
-def run_sku_recommendation_engine(jj_products_path, jj_product_based_path, paris_output_path=None, output_dir=None):
+def create_implementation_plan_visualization(implementation_plan):
     """
-    Run the complete SKU recommendation engine process and output results.
-    
-    Args:
-        jj_products_path (str): Path to Jeju products data
-        jj_product_based_path (str): Path to Jeju product-based analysis
-        paris_output_path (str, optional): Path to PARIS_Output data
-        output_dir (str, optional): Directory to save outputs
-    
-    Returns:
-        tuple: (recommendations, implementation_plan, figures)
-    """
-    # Load data
-    jj_df, jj_attr_df, paris_df = load_data_files(jj_products_path, jj_product_based_path, paris_output_path)
-    
-    if jj_df is None or jj_attr_df is None:
-        print("Failed to load necessary data files")
-        return None, None, None
-    
-    # Extract attribute gaps
-    attribute_gaps = extract_attribute_gaps(jj_attr_df, paris_df)
-    
-    # Identify top 90% products
-    top_90_pct = identify_top_90_percent_products(jj_df)
-    
-    # Analyze attribute distribution
-    attribute_distribution = analyze_attribute_distribution(jj_df, top_90_pct)
-    
-    # Generate SKU recommendations
-    recommendations = generate_sku_recommendations(jj_df, attribute_gaps, attribute_distribution, top_90_pct)
-    
-    # Create implementation plan
-    implementation_plan = create_phased_implementation_plan(recommendations)
-    
-    # Create visualizations
-    figures = visualize_sku_recommendations(recommendations, output_dir)
-    
-    # Generate report
-    report = generate_optimization_report(recommendations, implementation_plan)
-    print(report)
-    
-    # Save report if output directory is specified
-    if output_dir:
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-        
-        with open(os.path.join(output_dir, 'jeju_optimization_report.txt'), 'w') as f:
-            f.write(report)
-        
-        print(f"Saved report to {os.path.join(output_dir, 'jeju_optimization_report.txt')}")
-    
-    return recommendations, implementation_plan, figures
+    Create visualization for implementation plan.
 
-# Example usage
+    Args:
+        implementation_plan (dict): Implementation plan
+
+    Returns:
+        matplotlib.figure.Figure: The figure containing the visualization
+    """
+    # Count actions in each phase
+    short_term_count = len(implementation_plan['short_term'])
+    medium_term_count = len(implementation_plan['medium_term'])
+    long_term_count = len(implementation_plan['long_term'])
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Set up timeline positions
+    phases = ['Short-term\n(1-4 months)', 'Medium-term\n(4-8 months)', 'Long-term\n(8+ months)']
+    phase_positions = [1, 2, 3]
+
+    # Count action types in each phase
+    action_types = ['add', 'remove', 'adjust', 'strategic']
+    action_colors = ['green', 'red', 'orange', 'blue']
+
+    phase_data = []
+    for phase, actions in zip(phases, [implementation_plan['short_term'],
+                                       implementation_plan['medium_term'],
+                                       implementation_plan['long_term']]):
+        type_counts = {action_type: 0 for action_type in action_types}
+        for action in actions:
+            if action['action'] in type_counts:
+                type_counts[action['action']] += 1
+
+        phase_data.append(type_counts)
+
+    # Create stacked bar chart
+    bottom = np.zeros(3)
+    for action_type, color in zip(action_types, action_colors):
+        values = [phase[action_type] for phase in phase_data]
+        ax.bar(phase_positions, values, bottom=bottom, label=action_type.capitalize(), color=color, alpha=0.7)
+        bottom += values
+
+    # Add text annotations for each action
+    current_heights = np.zeros(3)
+    for phase_idx, (phase, actions) in enumerate(zip(phases, [implementation_plan['short_term'],
+                                                              implementation_plan['medium_term'],
+                                                              implementation_plan['long_term']])):
+        for action in actions:
+            action_type = action['action']
+            action_idx = action_types.index(action_type)
+
+            # Get position for annotation
+            y_pos = current_heights[phase_idx] + 0.5
+            current_heights[phase_idx] += 1
+
+            # Add annotation
+            if 'product_name' in action:
+                label = f"{action['product_name']}"
+            elif 'description' in action and len(action['description']) < 30:
+                label = action['description']
+            else:
+                label = f"{action_type.capitalize()}"
+
+            ax.annotate(label,
+                        xy=(phase_positions[phase_idx], y_pos),
+                        xytext=(10, 0),
+                        textcoords="offset points",
+                        fontsize=8,
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=action_colors[action_idx], alpha=0.7))
+
+    # Set labels and title
+    ax.set_title(f"Implementation Plan for {implementation_plan['location']} Portfolio Optimization", fontsize=16)
+    ax.set_xticks(phase_positions)
+    ax.set_xticklabels(phases, fontsize=12)
+    ax.set_ylabel("Number of Actions", fontsize=12)
+    ax.legend(title="Action Type")
+
+    # Add text with expected outcomes
+    expected_outcomes = {
+        'Short-term': "Quick wins to reduce overrepresentation",
+        'Medium-term': "New SKUs to address key gaps",
+        'Long-term': "Strategic alignment of full portfolio"
+    }
+
+    outcome_text = "\nExpected Outcomes:\n"
+    for phase, outcome in expected_outcomes.items():
+        outcome_text += f"• {phase}: {outcome}\n"
+
+    plt.figtext(0.5, 0.01, outcome_text, ha="center", fontsize=10,
+                bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="gray", alpha=0.9))
+
+    return fig
+
+
+def run_portfolio_optimization(location, data_dir='./locations_data', output_dir='./optimization_results'):
+    """
+    Run the full portfolio optimization process for a specific location.
+
+    Args:
+        location (str): Location name (e.g., 'Kuwait', 'Jeju')
+        data_dir (str): Directory containing location data files
+        output_dir (str): Directory to save output files and visualizations
+
+    Returns:
+        dict: Complete optimization results
+    """
+    print(f"Running portfolio optimization analysis for {location}...")
+
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. Load location data
+    location_data = load_location_data(location, data_dir)
+
+    # 2. Analyze portfolio gaps
+    gap_analysis = analyze_portfolio_gaps(location_data)
+
+    # 3. Identify competitor benchmark products
+    benchmarks = identify_competitor_benchmark_products(location_data, gap_analysis)
+
+    # 4. Generate SKU recommendations
+    top_products_df = None
+    if 'Top_90pct_Products' in location_data:
+        top_products_df = location_data['Top_90pct_Products']
+    elif 'PMI_Products' in location_data:
+        top_products_df = location_data['PMI_Products']
+
+    if top_products_df is not None:
+        recommendations = generate_sku_recommendations(location, gap_analysis, benchmarks, top_products_df)
+
+        # 5. Create recommendation visualization
+        rec_vis = create_recommendation_visualization(recommendations)
+        if rec_vis:
+            rec_vis.savefig(os.path.join(output_dir, f"{location}_recommendations.png"), dpi=300, bbox_inches='tight')
+
+        # 6. Generate implementation plan
+        implementation_plan = generate_implementation_plan(recommendations)
+
+        # 7. Create implementation plan visualization
+        plan_vis = create_implementation_plan_visualization(implementation_plan)
+        if plan_vis:
+            plan_vis.savefig(os.path.join(output_dir, f"{location}_implementation_plan.png"), dpi=300,
+                             bbox_inches='tight')
+
+        # 8. Save results to CSV files
+        add_recs_df = pd.DataFrame(recommendations['add'])
+        remove_recs_df = pd.DataFrame(recommendations['remove'])
+        adjust_recs_df = pd.DataFrame(recommendations['adjust'])
+
+        add_recs_df.to_csv(os.path.join(output_dir, f"{location}_add_recommendations.csv"), index=False)
+        remove_recs_df.to_csv(os.path.join(output_dir, f"{location}_remove_recommendations.csv"), index=False)
+        adjust_recs_df.to_csv(os.path.join(output_dir, f"{location}_adjust_recommendations.csv"), index=False)
+
+        # Combine results
+        results = {
+            'location': location,
+            'gap_analysis': gap_analysis,
+            'benchmarks': benchmarks,
+            'recommendations': recommendations,
+            'implementation_plan': implementation_plan
+        }
+
+        print(f"Portfolio optimization analysis for {location} completed!")
+        return results
+    else:
+        print(f"Error: No product data found for {location}. Cannot generate recommendations.")
+        return None
+
+
+def main():
+    """Main function to run portfolio optimization for multiple locations"""
+    locations = ['Jeju', 'Kuwait']
+    data_dir = './locations_data'
+    output_dir = './optimization_results'
+
+    results = {}
+
+    for location in locations:
+        result = run_portfolio_optimization(location, data_dir, output_dir)
+        if result:
+            results[location] = result
+
+    print("Portfolio optimization completed for all locations!")
+
+
 if __name__ == "__main__":
-    # This would be replaced with actual file paths
-    jj_products_path = "JJ_products.csv"
-    jj_product_based_path = "JJ_product_based.csv"
-    paris_output_path = "PARIS_Output.csv"
-    output_dir = "recommendation_results"
-    
-    recommendations, implementation_plan, figures = run_sku_recommendation_engine(
-        jj_products_path, jj_product_based_path, paris_output_path, output_dir
-    )
+    main()
