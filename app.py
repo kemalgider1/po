@@ -1,428 +1,458 @@
-import dash
-from dash import dcc, html, Input, Output
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 import os
 from pathlib import Path
 
 
-# Helper function to handle column name capitalization
-def standardize_column_names(df, column_map=None):
-    """
-    Standardize column names to lowercase
-    If column_map is provided, use it to map specific columns
-    """
-    if column_map is None:
-        column_map = {}
+def load_location_data(data_dir='./locations_data'):
+    """Load product data for Kuwait and Jeju."""
+    data_dir = Path(data_dir)
+    location_data = {'Kuwait': {}, 'Jeju': {}}
 
-    # Create a mapping of all columns to lowercase
-    all_column_map = {col: col.lower() for col in df.columns}
-
-    # Update with any specific mappings provided
-    all_column_map.update(column_map)
-
-    # Apply the mapping only for columns that exist in the DataFrame
-    valid_column_map = {k: v for k, v in all_column_map.items() if k in df.columns}
-
-    return df.rename(columns=valid_column_map)
-
-
-# Load data with proper column handling
-def load_location_data(data_dir="./locations_data"):
-    """Load data from the locations_data directory with robust column name handling"""
-
-    data = {
-        'Kuwait': {},
-        'Jeju': {}
+    # Files to load for each location
+    file_patterns = {
+        'Kuwait': ['Kuwait_product_analysis_PMI_Products.csv',
+                   'Kuwait_product_analysis_Top_90pct_Products.csv',
+                   'Kuwait_product_analysis_Summary.csv'],
+        'Jeju': ['jeju_product_analysis_PMI_Products.csv',
+                 'jeju_product_analysis_Top_90pct_Products.csv',
+                 'jeju_product_analysis_Summary.csv']
     }
 
-    # Define expected column mappings for each file type
-    column_mappings = {
-        'flavor': {'Flavor': 'flavor'},
-        'taste': {'Taste': 'taste'},
-        'thickness': {'Thickness': 'thickness'},
-        'length': {'Length': 'length'},
-        'pmi_products': {},
-        'top_90pct_products': {},
-        'summary': {},
-    }
+    # Load files
+    for location, patterns in file_patterns.items():
+        for pattern in patterns:
+            file_path = data_dir / pattern
+            if file_path.exists():
+                key = pattern.replace(f"{location}_product_analysis_", "").replace(".csv", "").lower()
+                location_data[location][key] = pd.read_csv(file_path)
+            else:
+                print(f"Warning: File not found - {file_path}")
 
-    # Define file mappings
-    file_mappings = {
-        'Kuwait': {
-            'flavor': 'Kuwait_product_analysis_Flavor_Distribution.csv',
-            'taste': 'Kuwait_product_analysis_Taste_Distribution.csv',
-            'thickness': 'Kuwait_product_analysis_Thickness_Distribution.csv',
-            'length': 'Kuwait_product_analysis_Length_Distribution.csv',
-            'pmi_products': 'Kuwait_product_analysis_PMI_Products.csv',
-            'top_90pct_products': 'Kuwait_product_analysis_Top_90pct_Products.csv',
-            'summary': 'Kuwait_product_analysis_Summary.csv'
-        },
-        'Jeju': {
-            'flavor': 'jeju_product_analysis_Flavor_Distribution.csv',
-            'taste': 'jeju_product_analysis_Taste_Distribution.csv',
-            'thickness': 'jeju_product_analysis_Thickness_Distribution.csv',
-            'length': 'jeju_product_analysis_Length_Distribution.csv',
-            'pmi_products': 'jeju_product_analysis_PMI_Products.csv',
-            'top_90pct_products': 'jeju_product_analysis_Top_90pct_Products.csv',
-            'summary': 'jeju_product_analysis_Summary.csv'
-        }
-    }
-
-    # Load data for each location
-    for location, file_map in file_mappings.items():
-        for key, filename in file_map.items():
-            file_path = os.path.join(data_dir, filename)
-            if os.path.exists(file_path):
-                try:
-                    df = pd.read_csv(file_path)
-                    print(f"Loaded {location} {key} data with columns: {list(df.columns)}")
-
-                    # Standardize column names
-                    df = standardize_column_names(df, column_mappings.get(key, {}))
-
-                    # Store the data
-                    data[location][key] = df
-                    print(f"  After standardization: {list(df.columns)}")
-                except Exception as e:
-                    print(f"Error loading {location} {key} data: {e}")
-
-    # Load comparison data
-    data['comparison'] = {}
-    comparison_files = {
-        'flavor': 'kuwait_jeju_attribute_analysis_Flavor_Distribution.csv',
-        'taste': 'kuwait_jeju_attribute_analysis_Taste_Distribution.csv',
-        'thickness': 'kuwait_jeju_attribute_analysis_Thickness_Distribution.csv',
-        'length': 'kuwait_jeju_attribute_analysis_Length_Distribution.csv'
-    }
-
-    for key, filename in comparison_files.items():
-        file_path = os.path.join(data_dir, filename)
-        if os.path.exists(file_path):
-            try:
-                df = pd.read_csv(file_path)
-                # Standardize column names
-                df = standardize_column_names(df, column_mappings.get(key, {}))
-                data['comparison'][key] = df
-            except Exception as e:
-                print(f"Error loading comparison {key} data: {e}")
-
-    return data
+    return location_data
 
 
-def create_shelf_visualization(location_data, location, view_type='actual', primary_attr='flavor',
-                               secondary_attr='taste'):
-    """
-    Create a shelf visualization for a given location and view type
+def create_advanced_product_shelf(location_data, location, cmap_name='Blues'):
+    """Create an advanced product shelf visualization."""
+    # Get PMI product data
+    products_df = None
+    for data_type in location_data[location]:
+        if 'pmi_products' in data_type.lower():
+            products_df = location_data[location][data_type]
+            break
 
-    Parameters:
-    -----------
-    location_data : dict
-        Dictionary containing the data for the location
-    location : str
-        The location to visualize (Kuwait or Jeju)
-    view_type : str
-        The type of view to create (actual or ideal)
-    primary_attr : str
-        The primary attribute to use for visualization
-    secondary_attr : str
-        The secondary attribute to use for visualization
+    if products_df is None:
+        print(f"No PMI product data found for {location}")
+        return None
 
-    Returns:
-    --------
-    plotly.graph_objects.Figure
-    """
-    # Define color mappings for attributes
-    color_maps = {
-        'flavor': {
-            'regular': '#8B4513',  # Brown
-            'menthol': '#00FF00',  # Green
-            'menthol caps': '#00AA00',  # Dark Green
-            'ntd': '#ADD8E6',  # Light Blue
-            'ntd caps': '#0000FF'  # Blue
-        },
-        'taste': {
-            'full flavor': '#FF0000',  # Red
-            'lights': '#FFA500',  # Orange
-            'ultralights': '#FFFF00',  # Yellow
-            '1mg': '#FFFFAA'  # Light Yellow
-        },
-        'thickness': {
-            'std': '#800080',  # Purple
-            'sli': '#FF00FF',  # Magenta
-            'ssl': '#BA55D3',  # Medium Orchid
-            'mag': '#DA70D6'  # Orchid
-        },
-        'length': {
-            'ks': '#2E8B57',  # Sea Green
-            '100': '#3CB371',  # Medium Sea Green
-            'longer than ks': '#66CDAA',  # Medium Aquamarine
-            'long size': '#8FBC8F',  # Dark Sea Green
-            'regular size': '#90EE90'  # Light Green
-        }
-    }
+    # Get unique values for each attribute (with new mappings)
+    tastes = sorted(products_df['Taste'].unique())  # X-axis
+    flavors = sorted(products_df['Flavor'].unique())  # Y-axis
+    thicknesses = sorted(products_df['Thickness'].unique())  # Box size
 
-    # Get the data based on view type
-    if view_type == 'actual':
-        # Use PMI products for actual view
-        products_df = location_data[location]['pmi_products'].copy()
-    else:
-        # Use market data for ideal view
-        products_df = location_data[location]['top_90pct_products'].copy()
+    # Create figure
+    fig, ax = plt.subplots(figsize=(16, 12))
 
-    # Get unique values for primary and secondary attributes
-    # Convert column access to lowercase
-    primary_attr_values = location_data[location][primary_attr][primary_attr].unique()
-    secondary_attr_values = location_data[location][secondary_attr][secondary_attr].unique()
+    # Calculate product distribution by flavor-taste combinations
+    cell_volumes = {}
+    for flavor in flavors:
+        flavor_data = products_df[products_df['Flavor'] == flavor]
+        flavor_total = flavor_data['DF_Vol'].sum()
 
-    # Create a figure
-    fig = go.Figure()
+        for taste in tastes:
+            cell_key = (taste, flavor)  # (X, Y)
+            cell_df = flavor_data[flavor_data['Taste'] == taste]
+            cell_volume = cell_df['DF_Vol'].sum()
+            cell_volumes[cell_key] = cell_volume
 
-    # Calculate the total volume for normalization
-    total_volume = products_df['df_vol'].sum() if 'df_vol' in products_df.columns else 1.0
+    # Create gradient matrix with 3 intensity levels per row
+    gradient_matrix = np.zeros((len(flavors), len(tastes)))
 
-    # Create a grid layout
-    n_rows = len(primary_attr_values)
-    n_cols = len(secondary_attr_values)
+    for y_idx, flavor in enumerate(flavors):
+        # Get all volumes for this flavor row
+        row_volumes = [cell_volumes.get((taste, flavor), 0) for taste in tastes]
 
-    # Create a heatmap for the background
-    if primary_attr in products_df.columns and secondary_attr in products_df.columns:
-        # Create a grid of product volumes by attributes
-        heatmap_data = np.zeros((n_rows, n_cols))
+        if sum(row_volumes) > 0:
+            # Create 3 discrete levels based on percentages within the row
+            normalized_volumes = [vol / sum(row_volumes) if sum(row_volumes) > 0 else 0 for vol in row_volumes]
 
-        for i, p_val in enumerate(primary_attr_values):
-            for j, s_val in enumerate(secondary_attr_values):
-                # Filter products by primary and secondary attributes
-                mask = (products_df[primary_attr].str.lower() == p_val.lower()) & \
-                       (products_df[secondary_attr].str.lower() == s_val.lower())
+            # Map to 3 intensity levels (0.2, 0.5, 0.8)
+            for x_idx, vol_pct in enumerate(normalized_volumes):
+                if vol_pct == 0:
+                    gradient_matrix[y_idx, x_idx] = 0
+                elif vol_pct < 0.2:
+                    gradient_matrix[y_idx, x_idx] = 0.2
+                elif vol_pct < 0.5:
+                    gradient_matrix[y_idx, x_idx] = 0.5
+                else:
+                    gradient_matrix[y_idx, x_idx] = 0.8
 
-                # Calculate the volume for this cell
-                volume = products_df.loc[mask, 'df_vol'].sum() if 'df_vol' in products_df.columns else 0.0
+    # Plot background gradient
+    im = ax.imshow(gradient_matrix, cmap=plt.colormaps['Greys'],
+                   alpha=0.3, aspect='auto', origin='lower',
+                   extent=(-0.5, len(tastes) - 0.5, -0.5, len(flavors) - 0.5))
 
-                # Store the normalized volume
-                heatmap_data[i, j] = (volume / total_volume) * 100
+    # Map thickness to visual properties
+    size_map = {thickness: (i + 1) * 150 for i, thickness in enumerate(thicknesses)}
 
-        # Add heatmap to figure
-        fig.add_trace(go.Heatmap(
-            z=heatmap_data,
-            x=secondary_attr_values,
-            y=primary_attr_values,
-            colorscale='Blues',
-            colorbar=dict(title='% of Volume'),
-            hoverinfo='text',
-            text=[[f"{p_val} × {s_val}: {heatmap_data[i, j]:.1f}%"
-                   for j, s_val in enumerate(secondary_attr_values)]
-                  for i, p_val in enumerate(primary_attr_values)]
-        ))
+    # Group products by Taste-Flavor cell
+    cell_products = {}
+    for taste in tastes:
+        for flavor in flavors:
+            cell_key = (taste, flavor)
+            cell_products[cell_key] = products_df[(products_df['Taste'] == taste) &
+                                                  (products_df['Flavor'] == flavor)]
 
-        # Add products as markers
-        for i, p_val in enumerate(primary_attr_values):
-            for j, s_val in enumerate(secondary_attr_values):
-                # Filter products by primary and secondary attributes
-                mask = (products_df[primary_attr].str.lower() == p_val.lower()) & \
-                       (products_df[secondary_attr].str.lower() == s_val.lower())
+    # Plot products as boxes
+    for cell_key, cell_df in cell_products.items():
+        if len(cell_df) == 0:
+            continue
 
-                if mask.sum() > 0:
-                    # Get the products for this cell
-                    cell_products = products_df[mask].copy()
+        taste, flavor = cell_key
+        x_pos = tastes.index(taste)
+        y_pos = flavors.index(flavor)
 
-                    # Calculate the total volume for this cell
-                    cell_volume = cell_products['df_vol'].sum() if 'df_vol' in cell_products.columns else 0.0
+        # Calculate total volume for this cell
+        total_cell_volume = cell_df['DF_Vol'].sum()
 
-                    # Normalize the products' volumes within the cell
-                    if cell_volume > 0:
-                        cell_products['normalized_volume'] = cell_products['df_vol'] / cell_volume
-                    else:
-                        cell_products['normalized_volume'] = 0.0
+        # Plot each product in this cell
+        for idx, (_, product) in enumerate(cell_df.iterrows()):
+            thickness = product['Thickness']
+            volume = product['DF_Vol']
 
-                    # Add a marker for each product
-                    for k, product in cell_products.iterrows():
-                        # Get the product color based on a third attribute
-                        color_attr = list(set(['flavor', 'taste', 'thickness', 'length']) -
-                                          set([primary_attr, secondary_attr]))[0]
+            # Size based on thickness
+            size = size_map.get(thickness, 100)
 
-                        color_value = product[color_attr].lower() if color_attr in product else 'unknown'
-                        color = color_maps[color_attr].get(color_value, '#CCCCCC')
+            # Use standard color (from colormap)
+            color = plt.colormaps[cmap_name](0.6)
 
-                        # Calculate marker size based on volume
-                        size = np.sqrt(product['normalized_volume']) * 50
+            # Position within cell
+            products_in_cell = len(cell_df)
+            grid_size = int(np.ceil(np.sqrt(products_in_cell)))
 
-                        # Add slight offsets to avoid complete overlap
-                        x_offset = (np.random.random() - 0.5) * 0.2
-                        y_offset = (np.random.random() - 0.5) * 0.2
+            # Calculate grid position
+            grid_x = idx % grid_size
+            grid_y = idx // grid_size
 
-                        # Add the marker
-                        fig.add_trace(go.Scatter(
-                            x=[j + x_offset],
-                            y=[i + y_offset],
-                            mode='markers',
-                            marker=dict(
-                                size=size,
-                                color=color,
-                                line=dict(color='white', width=2)
-                            ),
-                            name=f"{product['brand family'] if 'brand family' in product else ''} - {product[color_attr]}",
-                            hoverinfo='text',
-                            text=f"{product['brand family'] if 'brand family' in product else ''}<br>" +
-                                 f"{product['sku'] if 'sku' in product else ''}<br>" +
-                                 f"Volume: {product['df_vol']:.1f}<br>" +
-                                 f"{primary_attr.capitalize()}: {product[primary_attr]}<br>" +
-                                 f"{secondary_attr.capitalize()}: {product[secondary_attr]}<br>" +
-                                 f"{color_attr.capitalize()}: {product[color_attr]}"
-                        ))
+            # Calculate offsets within cell
+            x_offset = (grid_x - grid_size / 2 + 0.5) * 0.7 / grid_size
+            y_offset = (grid_y - grid_size / 2 + 0.5) * 0.7 / grid_size
 
-    # Update layout
-    fig.update_layout(
-        title=f"{location} - {'PMI Portfolio' if view_type == 'actual' else 'Ideal Market Portfolio'}",
-        xaxis=dict(
-            title=secondary_attr.capitalize(),
-            tickmode='array',
-            tickvals=list(range(len(secondary_attr_values))),
-            ticktext=secondary_attr_values
-        ),
-        yaxis=dict(
-            title=primary_attr.capitalize(),
-            tickmode='array',
-            tickvals=list(range(len(primary_attr_values))),
-            ticktext=primary_attr_values
-        ),
-        height=600,
-        width=800
-    )
+            # Scale size by volume ratio
+            volume_ratio = volume / total_cell_volume if total_cell_volume > 0 else 0.5
+            scaled_size = size * (0.5 + 0.5 * volume_ratio)
 
+            # Create circle representing product
+            circle = plt.Circle((x_pos + x_offset, y_pos + y_offset),
+                                scaled_size / 1000,
+                                facecolor=color,
+                                edgecolor='black',
+                                linewidth=1,
+                                alpha=0.8)
+            ax.add_patch(circle)
+
+    # Set up axes
+    ax.set_xticks(range(len(tastes)))
+    ax.set_yticks(range(len(flavors)))
+    ax.set_xticklabels(tastes)
+    ax.set_yticklabels(flavors)
+    ax.set_xlabel('Taste', fontsize=14)
+    ax.set_ylabel('Flavor', fontsize=14)
+
+    # Set grid
+    ax.grid(True, color='gray', linestyle='-', linewidth=0.5)
+    ax.set_axisbelow(True)
+
+    # Add title
+    ax.set_title(f'{location} PMI Products Portfolio Shelf View', fontsize=16)
+
+    # Create legends
+    # Thickness legend
+    thickness_handles = [plt.Line2D([0], [0], marker='o', color='w',
+                                    markerfacecolor=plt.colormaps[cmap_name](0.6), markersize=(i + 1) * 6,
+                                    label=f"{t}") for i, t in enumerate(thicknesses)]
+    thickness_legend = ax.legend(handles=thickness_handles, title="Thickness",
+                                 loc='upper left', bbox_to_anchor=(1.02, 1))
+    ax.add_artist(thickness_legend)
+
+    # Background gradient legend
+    gradient_handles = [
+        plt.Rectangle((0, 0), 1, 1, color=plt.colormaps['Greys'](0.2), alpha=0.3, label='Low Market Share'),
+        plt.Rectangle((0, 0), 1, 1, color=plt.colormaps['Greys'](0.5), alpha=0.3, label='Medium Market Share'),
+        plt.Rectangle((0, 0), 1, 1, color=plt.colormaps['Greys'](0.8), alpha=0.3, label='High Market Share')
+    ]
+    gradient_legend = ax.legend(handles=gradient_handles, title="Market Share",
+                                loc='upper left', bbox_to_anchor=(1.02, 0.7))
+    ax.add_artist(gradient_legend)
+
+    plt.tight_layout()
     return fig
 
+def create_advanced_product_shelf_subplot(ax, location_data, location, cmap_name='Blues'):
+    """Subplot version of the shelf visualization for comparisons"""
+    # Get product data
+    products_df = None
+    for data_type in location_data[location]:
+        if 'pmi_products' in data_type.lower():
+            products_df = location_data[location][data_type]
+            break
 
-# Initialize the app
-app = dash.Dash(__name__)
+    if products_df is None:
+        print(f"No PMI product data found for {location}")
+        return None
 
-# Load data
-data = load_location_data()
+    # Get unique values for each attribute (with new mappings)
+    tastes = sorted(products_df['Taste'].unique())  # X-axis
+    flavors = sorted(products_df['Flavor'].unique())  # Y-axis
+    thicknesses = sorted(products_df['Thickness'].unique())  # Box size
 
-# Define app layout
-app.layout = html.Div([
-    html.H1("PMI Portfolio Shelf Visualization"),
+    # Calculate product distribution by flavor-taste combinations
+    cell_volumes = {}
+    for flavor in flavors:
+        flavor_data = products_df[products_df['Flavor'] == flavor]
+        flavor_total = flavor_data['DF_Vol'].sum()
 
-    html.Div([
-        html.Div([
-            html.Label("Select Location:"),
-            dcc.Dropdown(
-                id='location-dropdown',
-                options=[
-                    {'label': 'Kuwait (Well-Aligned)', 'value': 'Kuwait'},
-                    {'label': 'Jeju (Misaligned)', 'value': 'Jeju'}
-                ],
-                value='Kuwait'
-            )
-        ], style={'width': '33%', 'display': 'inline-block'}),
+        for taste in tastes:
+            cell_key = (taste, flavor)  # (X, Y)
+            cell_df = flavor_data[flavor_data['Taste'] == taste]
+            cell_volume = cell_df['DF_Vol'].sum()
+            cell_volumes[cell_key] = cell_volume
 
-        html.Div([
-            html.Label("Primary Attribute (Y-axis):"),
-            dcc.Dropdown(
-                id='primary-attr-dropdown',
-                options=[
-                    {'label': 'Flavor', 'value': 'flavor'},
-                    {'label': 'Taste', 'value': 'taste'},
-                    {'label': 'Thickness', 'value': 'thickness'},
-                    {'label': 'Length', 'value': 'length'}
-                ],
-                value='flavor'
-            )
-        ], style={'width': '33%', 'display': 'inline-block'}),
+    # Create gradient matrix with 3 intensity levels per row
+    gradient_matrix = np.zeros((len(flavors), len(tastes)))
 
-        html.Div([
-            html.Label("Secondary Attribute (X-axis):"),
-            dcc.Dropdown(
-                id='secondary-attr-dropdown',
-                options=[
-                    {'label': 'Flavor', 'value': 'flavor'},
-                    {'label': 'Taste', 'value': 'taste'},
-                    {'label': 'Thickness', 'value': 'thickness'},
-                    {'label': 'Length', 'value': 'length'}
-                ],
-                value='taste'
-            )
-        ], style={'width': '33%', 'display': 'inline-block'})
-    ]),
+    for y_idx, flavor in enumerate(flavors):
+        # Get all volumes for this flavor row
+        row_volumes = [cell_volumes.get((taste, flavor), 0) for taste in tastes]
 
-    html.Div([
-        html.Div([
-            html.H3("PMI Portfolio"),
-            dcc.Graph(id='actual-shelf')
-        ], style={'width': '48%', 'display': 'inline-block'}),
+        if sum(row_volumes) > 0:
+            # Create 3 discrete levels based on percentages within the row
+            normalized_volumes = [vol / sum(row_volumes) if sum(row_volumes) > 0 else 0 for vol in row_volumes]
 
-        html.Div([
-            html.H3("Ideal Market Portfolio"),
-            dcc.Graph(id='ideal-shelf')
-        ], style={'width': '48%', 'display': 'inline-block'})
-    ]),
+            # Map to 3 intensity levels (0.2, 0.5, 0.8)
+            for x_idx, vol_pct in enumerate(normalized_volumes):
+                if vol_pct == 0:
+                    gradient_matrix[y_idx, x_idx] = 0
+                elif vol_pct < 0.2:
+                    gradient_matrix[y_idx, x_idx] = 0.2
+                elif vol_pct < 0.5:
+                    gradient_matrix[y_idx, x_idx] = 0.5
+                else:
+                    gradient_matrix[y_idx, x_idx] = 0.8
 
-    html.Div([
-        html.H3("Portfolio Summary"),
-        html.Div(id='summary-stats')
-    ])
-])
+    # Plot background gradient
+    im = ax.imshow(gradient_matrix, cmap=plt.colormaps['Greys'],
+                   alpha=0.3, aspect='auto', origin='lower',
+                   extent=(-0.5, len(tastes) - 0.5, -0.5, len(flavors) - 0.5))
 
+    # Map thickness to visual properties
+    size_map = {thickness: (i + 1) * 150 for i, thickness in enumerate(thicknesses)}
 
-# Define callbacks
-@app.callback(
-    [Output('actual-shelf', 'figure'),
-     Output('ideal-shelf', 'figure'),
-     Output('summary-stats', 'children')],
-    [Input('location-dropdown', 'value'),
-     Input('primary-attr-dropdown', 'value'),
-     Input('secondary-attr-dropdown', 'value')]
-)
-def update_figures(location, primary_attr, secondary_attr):
-    # Print for debugging
-    print(f"Updating figures for {location} with {primary_attr} and {secondary_attr}")
+    # Group products by Taste-Flavor cell
+    cell_products = {}
+    for taste in tastes:
+        for flavor in flavors:
+            cell_key = (taste, flavor)
+            cell_products[cell_key] = products_df[(products_df['Taste'] == taste) &
+                                                  (products_df['Flavor'] == flavor)]
 
-    # Check that we have the necessary data
-    if location not in data or primary_attr not in data[location] or secondary_attr not in data[location]:
-        return go.Figure(), go.Figure(), html.Div("Data not available for the selected options")
+    # Plot products as boxes
+    for cell_key, cell_df in cell_products.items():
+        if len(cell_df) == 0:
+            continue
 
-    # Create figures
-    actual_fig = create_shelf_visualization(data, location, 'actual', primary_attr, secondary_attr)
-    ideal_fig = create_shelf_visualization(data, location, 'ideal', primary_attr, secondary_attr)
+        taste, flavor = cell_key
+        x_pos = tastes.index(taste)
+        y_pos = flavors.index(flavor)
 
-    # Create summary stats
-    if 'summary' in data[location]:
-        summary_df = data[location]['summary']
+        # Calculate total volume for this cell
+        total_cell_volume = cell_df['DF_Vol'].sum()
 
-        # Extract market share
-        try:
-            market_share = summary_df[summary_df['metric'] == 'PMI Share in Top 90% Products']['value'].iloc[0]
-            market_share = market_share.replace('%', '') if isinstance(market_share, str) else market_share
-            market_share = float(market_share)
-        except:
-            market_share = "N/A"
+        # Plot each product in this cell
+        for idx, (_, product) in enumerate(cell_df.iterrows()):
+            thickness = product['Thickness']
+            volume = product['DF_Vol']
 
-        # Create summary component
-        summary_stats = html.Div([
-            html.H4(f"{location} Market Summary"),
-            html.P(f"PMI Market Share: {market_share}%"),
-            html.P(f"Category C Score: {data[location].get('category_c_score', 'N/A')}"),
+            # Size based on thickness
+            size = size_map.get(thickness, 100)
 
-            html.H4("Portfolio Alignment:"),
-            html.Ul([
-                html.Li(f"{primary_attr.capitalize()} Alignment: "
-                        f"{'Good' if location == 'Kuwait' else 'Poor'}"),
-                html.Li(f"{secondary_attr.capitalize()} Alignment: "
-                        f"{'Good' if location == 'Kuwait' else 'Poor'}"),
-            ]),
+            # Use standard color
+            color = plt.colormaps[cmap_name](0.6)
 
-            html.H4("Recommendations:"),
-            html.Ul([
-                html.Li(f"{'Maintain current mix' if location == 'Kuwait' else 'Optimize product attributes'}")
-            ])
-        ])
+            # Position within cell
+            products_in_cell = len(cell_df)
+            grid_size = int(np.ceil(np.sqrt(products_in_cell)))
+
+            grid_x = idx % grid_size
+            grid_y = idx // grid_size
+
+            x_offset = (grid_x - grid_size / 2 + 0.5) * 0.7 / grid_size
+            y_offset = (grid_y - grid_size / 2 + 0.5) * 0.7 / grid_size
+
+            volume_ratio = volume / total_cell_volume if total_cell_volume > 0 else 0.5
+            scaled_size = size * (0.5 + 0.5 * volume_ratio)
+
+            circle = plt.Circle((x_pos + x_offset, y_pos + y_offset),
+                                scaled_size / 1000,
+                                facecolor=color,
+                                edgecolor='black',
+                                linewidth=1,
+                                alpha=0.8)
+            ax.add_patch(circle)
+
+    # Set up axes
+    ax.set_xticks(range(len(tastes)))
+    ax.set_yticks(range(len(flavors)))
+    ax.set_xticklabels(tastes)
+    ax.set_yticklabels(flavors)
+    ax.set_xlabel('Taste', fontsize=12)
+    ax.set_ylabel('Flavor', fontsize=12)
+    ax.grid(True, color='gray', linestyle='-', linewidth=0.5)
+    ax.set_axisbelow(True)
+
+    return ax
+
+def create_market_comparison(location_data, location, ax=None):
+    """Create comparison of PMI vs total market"""
+    pmi_df = None
+    market_df = None
+
+    for data_type in location_data[location]:
+        if 'pmi_products' in data_type.lower():
+            pmi_df = location_data[location][data_type]
+        if 'top_90pct_products' in data_type.lower():
+            market_df = location_data[location][data_type]
+
+    if pmi_df is None or market_df is None:
+        print(f"Missing data for {location}")
+        return None
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(16, 10))
+        standalone = True
     else:
-        summary_stats = html.Div("Summary data not available")
+        standalone = False
 
-    return actual_fig, ideal_fig, summary_stats
+    # Analyze by flavor and length - Fix type mismatch by converting to strings
+    pmi_flavors = [str(f) for f in pmi_df['Flavor'].unique()]
+    market_flavors = [str(f) for f in market_df['Flavor'].unique()]
+    flavors = sorted(set(pmi_flavors + market_flavors))
+
+    pmi_lengths = [str(l) for l in pmi_df['Length'].unique()]
+    market_lengths = [str(l) for l in market_df['Length'].unique()]
+    lengths = sorted(set(pmi_lengths + market_lengths))
+
+    # Create comparison grid
+    comparison_data = []
+    for flavor in flavors:
+        for length in lengths:
+            pmi_vol = pmi_df[(pmi_df['Flavor'].astype(str) == flavor) &
+                             (pmi_df['Length'].astype(str) == length)]['DF_Vol'].sum()
+            market_vol = market_df[(market_df['Flavor'].astype(str) == flavor) &
+                                   (market_df['Length'].astype(str) == length)]['DF_Vol'].sum()
+
+            # Calculate gap
+            if market_vol > 0:
+                pmi_share = (pmi_vol / market_vol) * 100
+            else:
+                pmi_share = 0 if pmi_vol == 0 else 100
+
+            comparison_data.append({
+                'Flavor': flavor,
+                'Length': length,
+                'PMI_Volume': pmi_vol,
+                'Market_Volume': market_vol,
+                'PMI_Share': pmi_share
+            })
+
+    # Create a DataFrame for easier analysis
+    comparison_df = pd.DataFrame(comparison_data)
+
+    # Create matrix for visualization
+    matrix_values = np.zeros((len(flavors), len(lengths)))
+    for i, flavor in enumerate(flavors):
+        for j, length in enumerate(lengths):
+            row = comparison_df[(comparison_df['Flavor'] == flavor) &
+                                (comparison_df['Length'] == length)]
+            if not row.empty:
+                matrix_values[i, j] = row['PMI_Share'].values[0]
+
+    # Plot heatmap
+    im = ax.imshow(matrix_values, cmap=plt.colormaps['RdYlGn'],
+                   vmin=0, vmax=100, aspect='auto', origin='lower',
+                   extent=(-0.5, len(lengths) - 0.5, -0.5, len(flavors) - 0.5))
+
+    # Set up axes
+    ax.set_xticks(range(len(lengths)))
+    ax.set_yticks(range(len(flavors)))
+    ax.set_xticklabels(lengths)
+    ax.set_yticklabels(flavors)
+    ax.set_xlabel('Length', fontsize=12)
+    ax.set_ylabel('Flavor', fontsize=12)
+    ax.set_title(f'{location} PMI Market Coverage', fontsize=14)
+    ax.grid(True, color='white', linestyle='-', linewidth=0.5, alpha=0.3)
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('PMI Market Share %')
+
+    if standalone:
+        plt.tight_layout()
+        return fig
+    else:
+        return ax
+
+def main():
+    """Main function to load data and create visualizations"""
+    # Set up directories
+    data_dir = './locations_data'
+    output_dir = './visualization_results'
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Load location data
+    location_data = load_location_data(data_dir)
+
+    # 1. Create individual shelf visualizations for PMI products
+    kuwait_shelf = create_advanced_product_shelf(location_data, 'Kuwait', cmap_name='Blues')
+    if kuwait_shelf:
+        kuwait_shelf.savefig(os.path.join(output_dir, "kuwait_pmi_shelf_view.png"), dpi=300, bbox_inches='tight')
+        print("Kuwait PMI shelf visualization created")
+
+    jeju_shelf = create_advanced_product_shelf(location_data, 'Jeju', cmap_name='Oranges')
+    if jeju_shelf:
+        jeju_shelf.savefig(os.path.join(output_dir, "jeju_pmi_shelf_view.png"), dpi=300, bbox_inches='tight')
+        print("Jeju PMI shelf visualization created")
+
+    # 2. Create comparison view of both locations
+    fig, axes = plt.subplots(1, 2, figsize=(24, 10))
+
+    for i, (loc, cmap) in enumerate([('Kuwait', 'Blues'), ('Jeju', 'Oranges')]):
+        create_advanced_product_shelf_subplot(axes[i], location_data, loc, cmap_name=cmap)
+        axes[i].set_title(f'{loc} PMI Product Portfolio', fontsize=16)
+
+    plt.suptitle('PMI Portfolio Comparison: Kuwait vs Jeju', fontsize=20)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.93)
+
+    fig.savefig(os.path.join(output_dir, "pmi_shelf_comparison.png"), dpi=300, bbox_inches='tight')
+    print("PMI shelf comparison visualization created")
+
+    # 3. Create market coverage comparison visualization
+    fig, axes = plt.subplots(1, 2, figsize=(24, 10))
+
+    create_market_comparison(location_data, 'Kuwait', axes[0])
+    create_market_comparison(location_data, 'Jeju', axes[1])
+
+    plt.suptitle('Market Coverage Analysis: Kuwait vs Jeju', fontsize=20)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.93)
+
+    fig.savefig(os.path.join(output_dir, "pmi_market_coverage.png"), dpi=300, bbox_inches='tight')
+    print("PMI market coverage visualization created")
+
+    print(f"All visualizations saved to {output_dir}")
 
 
-# Run the app
-if __name__ == '__main__':
-    app.run_server(debug=True)
+if __name__ == "__main__":
+    main()

@@ -25,16 +25,145 @@ Files and Dependencies:
 # Data Processing and Analysis
 DATA_PROCESSING_FILES = """
 - full.py: Core data processing script (original/legacy)
-- quer.sql: Corresponding SQL queries for data extraction
+- queries.sql: Corresponding SQL queries for data extraction
 - eda.py: Exploratory data analysis script for validation
 - analyse_j.py/analyse_k.py: Location-specific analysis scripts
 - category-c-validation.py: Validation script for Category C scoring
 """
 
+FILE_DEFINITIONS = """
+A. db_tables: database, schema, table, columns per each table used in this study along with table definitions.
+
+B. full.py: 2023 version of the script, needed some modifications so I did that on sql.
+
+C. quer.sql: Must be following the SAME EXACT logic as full.py, as long as we calculate same scores  and look at the effects of the same things, we can differ in method.
+
+We have our main datasets as outputs of these queries:
+base_list.csv
+calculation_table.csv
+cat_a_df_vols.csv
+category_a_1.csv
+CategoryAScores.csv
+CategoryBScores.csv
+CategoryCScores.csv
+CategoryDScores.csv
+country_figures.csv
+df_vols_w_metrics.csv
+df_volume.csv
+dom_ims_data.csv
+dom_products.csv
+domestic_volumes.csv
+FinalScores.csv
+Flags.csv
+green_red_list.csv
+iata_location_map.csv
+location_comparison.csv
+LocationVolumes.csv
+Market_Delta.csv
+Market_Mix.csv
+Market_Summary_Comp.csv
+Market_Summary_PMI.csv
+MarketSummary.csv
+MC_per_Product.csv
+nationality_country_map.csv
+no_of_sku.csv
+PARIS_Output.csv
+pax_data.csv
+pmi_margins.csv
+selma_df_map.csv
+selma_dom_map.csv
+similarity_matrix.csv
+sku_by_vols_margins.csv
+
+D. eda.py: The script used to validate the output tables of quer.sql. eda py gave the following output:
+D1. portfolio_analysis_results_20250311_022521
+D2. portfolio_analysis_results_20250311_022304
+
+E. Category_C_Validation py outputs:
+E1) cat_c_validation: output of the script
+E2) comparisons_[attribute]_[SKU or Volume]_Distribution.csv: both locations SKU count or volume distribution comparisons tables in different attributes
+
+F. analyse_[j or k].py: we choose these two locations to see how the market is shaped in terms of portfolio. We check attribute-based product distributions, passenger mix, market mix etc. it gave the outputs below (available in GitHub attachments):
+
+F1) [Kuwait or jeju]_product_analysis_[attribute]_Distribution.csv : Volume based Flavor, thickness, length, taste - distributions of ideal vs PMI’s actual sales and their gaps.
+F3) [Kuwait or jeju]_product_analysis_[attribute]_Top_Products.csv : Top products in locations based on their attributes
+F4) [Kuwait or jeju]_product_analysis_PMI_Products.csv: PMI’s SKU list with all the attributes and volume data
+F5) [Kuwait or jeju]_product_analysis_Top_90pct_Products.csv: All TMO’s products that make up the 90% of the market with all the attributes and volume data
+F6) [Kuwait or jeju]_product_analysis_Summary.csv: Summary info
+"""
+
 # Portfolio Visualization
 VISUALIZATION_FILES = """
-- portfolio_visualization.py: Main visualization script for product portfolio
-- portfolio-analysis-testing.py: Test script for visualization validation
+- app.py: Main visualization script for product portfolio
+- Portfolio Visualization Requirements
+
+Visual Concept: Create a SIMPLE "shelf" visualization representing product portfolios
+
+Each shelf represents a market (Kuwait or Jeju)
+We need two views for each market:
+
+Actual view (PMI products only)
+Ideal view (total market mix based on passenger preferences)
+
+
+Shelf Structure:
+
+The shelf contains multiple products (approximately 20)
+Products are arranged in rows (e.g., 4 rows with 5 products each)
+The entire shelf represents 100% of the market volume
+
+
+Product Representation:
+
+Each product's size reflects its market share or volume
+Products are normalized so the whole shelf represents the total market
+Products' colors represent different attributes (flavor, taste, thickness, length)
+The position on the shelf may represent other attributes
+
+
+Heat Map Background:
+
+Use the shelf background as a heat map to show an additional metric
+The background colors provide additional context beyond just the product positioning
+This allows visualizing category scoring data (ABCD) and other calculated metrics
+
+
+Coordinate System:
+
+X/Y axes of the shelf can represent different attributes
+Combined with the heat map background, this provides a multi-dimensional view
+
+
+Data Source:
+
+Utilize the tables created by the SQL query in the project
+Incorporate Category A, B, C, D scoring data for each location
+Use market mix, passenger mix, and other calculated metrics from the analysis
+
+
+Comparison Purpose:
+
+For Kuwait: The PMI product shelf should closely resemble the ideal market shelf
+For Jeju: The PMI product shelf should show significant differences from the ideal market shelf
+This contrast visually demonstrates why Kuwait has higher market share than Jeju
+
+
+Visualization Information:
+
+By looking at these two shelves side-by-side (actual vs. ideal), one should be able to:
+
+Identify what product attributes dominate the market
+See how well PMI's portfolio matches market preferences
+Understand attribute preferences (flavor, taste, thickness, length)
+Recognize passenger mix influences
+
+Implementation:
+
+A simple app or interactive visual
+Focus on one market at a time with two views (actual PMI vs. ideal market)
+Allow for easy comparison between the two views
+Potentially allow switching between markets (Kuwait/Jeju) and attributes
+
 """
 
 # Recommendations Engine
