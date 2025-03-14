@@ -1,1307 +1,428 @@
 import dash
-from dash import dcc, html, Input, Output, State, callback
+from dash import dcc, html, Input, Output
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 import os
 from pathlib import Path
-import json
-
-# Initialize Dash app
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
-
-# Custom CSS for styling
-app.index_string = '''
-<!DOCTYPE html>
-<html>
-    <head>
-        {%metas%}
-        <title>PMI Portfolio Shelf Visualization</title>
-        {%favicon%}
-        {%css%}
-        <style>
-            body {
-                font-family: "Segoe UI", Arial, sans-serif;
-                margin: 0;
-                background-color: #f7f7f7;
-            }
-            .header {
-                background-color: #2c3e50;
-                color: white;
-                padding: 1rem;
-                margin-bottom: 2rem;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }
-            .title {
-                margin: 0;
-                padding: 0;
-                font-size: 24px;
-                font-weight: bold;
-            }
-            .subtitle {
-                margin: 5px 0 0 0;
-                font-size: 16px;
-                opacity: 0.9;
-            }
-            .dashboard-container {
-                max-width: 1600px;
-                margin: 0 auto;
-                padding: 0 20px;
-            }
-            .card {
-                background-color: white;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 20px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            }
-            .card-title {
-                margin-top: 0;
-                margin-bottom: 15px;
-                padding-bottom: 10px;
-                border-bottom: 1px solid #eee;
-                font-size: 18px;
-                color: #2c3e50;
-            }
-            .metric-card {
-                text-align: center;
-                padding: 15px 5px;
-            }
-            .metric-value {
-                font-size: 24px;
-                font-weight: bold;
-                color: #2c3e50;
-            }
-            .metric-label {
-                font-size: 14px;
-                color: #7f8c8d;
-                margin-top: 5px;
-            }
-            .tab-content {
-                padding: 20px;
-                background-color: white;
-                border-radius: 0 0 8px 8px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            }
-            .info-box {
-                background-color: #ebf5fb;
-                border-left: 4px solid #3498db;
-                padding: 10px 15px;
-                margin-bottom: 15px;
-                border-radius: 4px;
-            }
-            .warning-box {
-                background-color: #fef9e7;
-                border-left: 4px solid #f1c40f;
-                padding: 10px 15px;
-                margin-bottom: 15px;
-                border-radius: 4px;
-            }
-            .graph-container {
-                background-color: white;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 20px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="dashboard-container">
-                <h1 class="title">PMI Portfolio Shelf Visualization</h1>
-                <p class="subtitle">Interactive visualization of product portfolio alignment</p>
-            </div>
-        </div>
-        <div class="dashboard-container">
-            {%app_entry%}
-        </div>
-        <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
-        </footer>
-    </body>
-</html>
-'''
 
 
-# Helper functions for data loading and processing
+# Helper function to handle column name capitalization
+def standardize_column_names(df, column_map=None):
+    """
+    Standardize column names to lowercase
+    If column_map is provided, use it to map specific columns
+    """
+    if column_map is None:
+        column_map = {}
+
+    # Create a mapping of all columns to lowercase
+    all_column_map = {col: col.lower() for col in df.columns}
+
+    # Update with any specific mappings provided
+    all_column_map.update(column_map)
+
+    # Apply the mapping only for columns that exist in the DataFrame
+    valid_column_map = {k: v for k, v in all_column_map.items() if k in df.columns}
+
+    return df.rename(columns=valid_column_map)
+
+
+# Load data with proper column handling
 def load_location_data(data_dir="./locations_data"):
-    """Load data from the locations_data directory with improved error handling"""
+    """Load data from the locations_data directory with robust column name handling"""
 
     data = {
         'Kuwait': {},
         'Jeju': {}
     }
 
-    # Define file mappings with potential alternative column names
+    # Define expected column mappings for each file type
+    column_mappings = {
+        'flavor': {'Flavor': 'flavor'},
+        'taste': {'Taste': 'taste'},
+        'thickness': {'Thickness': 'thickness'},
+        'length': {'Length': 'length'},
+        'pmi_products': {},
+        'top_90pct_products': {},
+        'summary': {},
+    }
+
+    # Define file mappings
     file_mappings = {
         'Kuwait': {
-            'flavor': {'file': 'Kuwait_product_analysis_Flavor_Distribution.csv', 'alt_columns': ['Flavor', 'flavor']},
-            'taste': {'file': 'Kuwait_product_analysis_Taste_Distribution.csv', 'alt_columns': ['Taste', 'taste']},
-            'thickness': {'file': 'Kuwait_product_analysis_Thickness_Distribution.csv',
-                          'alt_columns': ['Thickness', 'thickness']},
-            'length': {'file': 'Kuwait_product_analysis_Length_Distribution.csv', 'alt_columns': ['Length', 'length']},
-            'pmi_products': {'file': 'Kuwait_product_analysis_PMI_Products.csv', 'alt_columns': []},
-            'top_90pct_products': {'file': 'Kuwait_product_analysis_Top_90pct_Products.csv', 'alt_columns': []},
-            'summary': {'file': 'Kuwait_product_analysis_Summary.csv', 'alt_columns': []},
-            'passenger': {'file': 'Kuwait_product_analysis_Passenger_Distribution.csv', 'alt_columns': []}
+            'flavor': 'Kuwait_product_analysis_Flavor_Distribution.csv',
+            'taste': 'Kuwait_product_analysis_Taste_Distribution.csv',
+            'thickness': 'Kuwait_product_analysis_Thickness_Distribution.csv',
+            'length': 'Kuwait_product_analysis_Length_Distribution.csv',
+            'pmi_products': 'Kuwait_product_analysis_PMI_Products.csv',
+            'top_90pct_products': 'Kuwait_product_analysis_Top_90pct_Products.csv',
+            'summary': 'Kuwait_product_analysis_Summary.csv'
         },
         'Jeju': {
-            'flavor': {'file': 'jeju_product_analysis_Flavor_Distribution.csv', 'alt_columns': ['Flavor', 'flavor']},
-            'taste': {'file': 'jeju_product_analysis_Taste_Distribution.csv', 'alt_columns': ['Taste', 'taste']},
-            'thickness': {'file': 'jeju_product_analysis_Thickness_Distribution.csv',
-                          'alt_columns': ['Thickness', 'thickness']},
-            'length': {'file': 'jeju_product_analysis_Length_Distribution.csv', 'alt_columns': ['Length', 'length']},
-            'pmi_products': {'file': 'jeju_product_analysis_PMI_Products.csv', 'alt_columns': []},
-            'top_90pct_products': {'file': 'jeju_product_analysis_Top_90pct_Products.csv', 'alt_columns': []},
-            'summary': {'file': 'jeju_product_analysis_Summary.csv', 'alt_columns': []}
+            'flavor': 'jeju_product_analysis_Flavor_Distribution.csv',
+            'taste': 'jeju_product_analysis_Taste_Distribution.csv',
+            'thickness': 'jeju_product_analysis_Thickness_Distribution.csv',
+            'length': 'jeju_product_analysis_Length_Distribution.csv',
+            'pmi_products': 'jeju_product_analysis_PMI_Products.csv',
+            'top_90pct_products': 'jeju_product_analysis_Top_90pct_Products.csv',
+            'summary': 'jeju_product_analysis_Summary.csv'
         }
     }
 
     # Load data for each location
     for location, file_map in file_mappings.items():
-        for key, file_info in file_map.items():
-            file_path = os.path.join(data_dir, file_info['file'])
-            if os.path.exists(file_path):
-                try:
-                    df = pd.read_csv(file_path)
-
-                    # Handle potential column name variations
-                    if key in ['flavor', 'taste', 'thickness', 'length'] and file_info['alt_columns']:
-                        for col in file_info['alt_columns']:
-                            if col in df.columns:
-                                # Standardize column names if needed
-                                df = df.rename(columns={col: key})
-                                break
-
-                    data[location][key] = df
-                    print(f"Loaded {location} {key} data: {df.shape[0]} rows, {df.shape[1]} columns")
-                except Exception as e:
-                    print(f"Error loading {location} {key} data: {e}")
-
-    # Load comparison data with similar robust handling
-    comparison_files = {
-        'flavor': {'file': 'kuwait_jeju_attribute_analysis_Flavor_Distribution.csv',
-                   'alt_columns': ['Flavor', 'flavor']},
-        'taste': {'file': 'kuwait_jeju_attribute_analysis_Taste_Distribution.csv', 'alt_columns': ['Taste', 'taste']},
-        'thickness': {'file': 'kuwait_jeju_attribute_analysis_Thickness_Distribution.csv',
-                      'alt_columns': ['Thickness', 'thickness']},
-        'length': {'file': 'kuwait_jeju_attribute_analysis_Length_Distribution.csv',
-                   'alt_columns': ['Length', 'length']}
-    }
-
-    data['comparison'] = {}
-    for key, file_info in comparison_files.items():
-        file_path = os.path.join(data_dir, file_info['file'])
-        if os.path.exists(file_path):
-            try:
-                df = pd.read_csv(file_path)
-
-                # Handle potential column name variations
-                if file_info['alt_columns']:
-                    for col in file_info['alt_columns']:
-                        if col in df.columns:
-                            # Standardize column names if needed
-                            df = df.rename(columns={col: key})
-                            break
-
-                data['comparison'][key] = df
-            except Exception as e:
-                print(f"Error loading comparison {key} data: {e}")
-
-    # Similar robust handling for gap data
-    for location in ['Kuwait', 'Jeju']:
-        data[location]['gaps'] = {}
-        gap_files = {
-            'flavor': f'kuwait_jeju_attribute_analysis_{location}_Flavor_Gaps.csv',
-            'taste': f'kuwait_jeju_attribute_analysis_{location}_Taste_Gaps.csv',
-            'thickness': f'kuwait_jeju_attribute_analysis_{location}_Thickness_Gaps.csv',
-            'length': f'kuwait_jeju_attribute_analysis_{location}_Length_Gaps.csv'
-        }
-
-        for key, filename in gap_files.items():
+        for key, filename in file_map.items():
             file_path = os.path.join(data_dir, filename)
             if os.path.exists(file_path):
                 try:
                     df = pd.read_csv(file_path)
-                    data[location]['gaps'][key] = df
+                    print(f"Loaded {location} {key} data with columns: {list(df.columns)}")
+
+                    # Standardize column names
+                    df = standardize_column_names(df, column_mappings.get(key, {}))
+
+                    # Store the data
+                    data[location][key] = df
+                    print(f"  After standardization: {list(df.columns)}")
                 except Exception as e:
-                    print(f"Error loading {location} {key} gap data: {e}")
+                    print(f"Error loading {location} {key} data: {e}")
 
-    return data
-
-def load_main_data(data_dir="./main_data"):
-    """Load data from the main_data directory (SQL outputs)"""
-
-    data = {}
-
-    # Check if main_data directory exists
-    if not os.path.exists(data_dir):
-        return data
-
-    # Try to load JSON files
-    json_files = [f for f in os.listdir(data_dir) if f.endswith('.json')]
-
-    for file in json_files:
-        file_path = os.path.join(data_dir, file)
-        try:
-            with open(file_path, 'r') as f:
-                data[file] = json.load(f)
-        except Exception as e:
-            print(f"Could not load {file}: {e}")
-
-    return data
-
-
-def load_validation_data(data_dir="./locations_data"):
-    """Load Category C validation data"""
-
-    data = {
-        'Kuwait': {},
-        'Jeju': {}
+    # Load comparison data
+    data['comparison'] = {}
+    comparison_files = {
+        'flavor': 'kuwait_jeju_attribute_analysis_Flavor_Distribution.csv',
+        'taste': 'kuwait_jeju_attribute_analysis_Taste_Distribution.csv',
+        'thickness': 'kuwait_jeju_attribute_analysis_Thickness_Distribution.csv',
+        'length': 'kuwait_jeju_attribute_analysis_Length_Distribution.csv'
     }
 
-    # Try to load validation text file
-    validation_file = os.path.join(data_dir, 'cat_c_validation.txt')
-    if not os.path.exists(validation_file):
-        return data
-
-    # Parse the validation file
-    try:
-        with open(validation_file, 'r') as f:
-            content = f.read()
-
-            # Extract Kuwait data
-            kuwait_section = content.split("Location: Kuwait")[1].split("Location: Jeju")[
-                0] if "Location: Kuwait" in content else ""
-            if kuwait_section:
-                data['Kuwait']['category_c_score'] = float(kuwait_section.split("Category C Score: ")[1].split('\n')[
-                                                               0]) if "Category C Score:" in kuwait_section else None
-                data['Kuwait']['correlation'] = float(kuwait_section.split("Correlation: ")[1].split('\n')[
-                                                          0]) if "Correlation:" in kuwait_section else None
-                data['Kuwait']['r_squared'] = float(
-                    kuwait_section.split("R²: ")[1].split('\n')[0]) if "R²:" in kuwait_section else None
-
-            # Extract Jeju data
-            jeju_section = content.split("Location: Jeju")[1] if "Location: Jeju" in content else ""
-            if jeju_section:
-                data['Jeju']['category_c_score'] = float(jeju_section.split("Category C Score: ")[1].split('\n')[
-                                                             0]) if "Category C Score:" in jeju_section else None
-                data['Jeju']['correlation'] = float(
-                    jeju_section.split("Correlation: ")[1].split('\n')[0]) if "Correlation:" in jeju_section else None
-                data['Jeju']['r_squared'] = float(
-                    jeju_section.split("R²: ")[1].split('\n')[0]) if "R²:" in jeju_section else None
-
-    except Exception as e:
-        print(f"Could not load validation data: {e}")
+    for key, filename in comparison_files.items():
+        file_path = os.path.join(data_dir, filename)
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_csv(file_path)
+                # Standardize column names
+                df = standardize_column_names(df, column_mappings.get(key, {}))
+                data['comparison'][key] = df
+            except Exception as e:
+                print(f"Error loading comparison {key} data: {e}")
 
     return data
 
 
-def get_attribute_colors():
-    """Get color mappings for different attributes"""
-
-    color_maps = {
-        'flavor': {
-            'Regular': '#8B4513',  # Brown
-            'Menthol': '#00FF00',  # Green
-            'Menthol Caps': '#00AA00',  # Dark Green
-            'NTD': '#ADD8E6',  # Light Blue
-            'NTD Caps': '#0000FF'  # Blue
-        },
-        'taste': {
-            'Full Flavor': '#FF0000',  # Red
-            'Lights': '#FFA500',  # Orange
-            'Ultralights': '#FFFF00',  # Yellow
-            '1mg': '#FFFFAA'  # Light Yellow
-        },
-        'thickness': {
-            'STD': '#800080',  # Purple
-            'SLI': '#FF00FF',  # Magenta
-            'SSL': '#BA55D3',  # Medium Orchid
-            'MAG': '#DA70D6'  # Orchid
-        },
-        'length': {
-            'KS': '#2E8B57',  # Sea Green
-            '100': '#3CB371',  # Medium Sea Green
-            'LONGER THAN KS': '#66CDAA',  # Medium Aquamarine
-            'LONG SIZE': '#8FBC8F',  # Dark Sea Green
-            'REGULAR SIZE': '#90EE90'  # Light Green
-        }
-    }
-
-    return color_maps
-
-
-def create_attribute_heatmap_data(location_data, location, primary_attr, secondary_attr):
-    """Create a 2D heatmap data for two selected attributes"""
-
-    # Get attribute values
-    primary_values = location_data[location][primary_attr][primary_attr].unique()
-    secondary_values = location_data[location][secondary_attr][secondary_attr].unique()
-
-    # Initialize heatmap data
-    heatmap_data = pd.DataFrame(0, index=primary_values, columns=secondary_values)
-
-    # Get product data
-    products_df = location_data[location]['top_90pct_products']
-
-    # Fill heatmap with volume data
-    for p_val in primary_values:
-        for s_val in secondary_values:
-            volume = products_df[(products_df[primary_attr] == p_val) &
-                                 (products_df[secondary_attr] == s_val)]['DF_Vol'].sum()
-            heatmap_data.loc[p_val, s_val] = volume
-
-    # Normalize to percentage of total volume
-    total_volume = heatmap_data.sum().sum()
-    if total_volume > 0:
-        heatmap_data = (heatmap_data / total_volume) * 100
-
-    return heatmap_data
-
-
-def create_pmi_heatmap_data(location_data, location, primary_attr, secondary_attr):
-    """Create a 2D heatmap data for PMI products only"""
-
-    # Get attribute values
-    primary_values = location_data[location][primary_attr][primary_attr].unique()
-    secondary_values = location_data[location][secondary_attr][secondary_attr].unique()
-
-    # Initialize heatmap data
-    heatmap_data = pd.DataFrame(0, index=primary_values, columns=secondary_values)
-
-    # Get PMI product data
-    products_df = location_data[location]['pmi_products']
-
-    # Fill heatmap with volume data
-    for p_val in primary_values:
-        for s_val in secondary_values:
-            volume = products_df[(products_df[primary_attr] == p_val) &
-                                 (products_df[secondary_attr] == s_val)]['DF_Vol'].sum()
-            heatmap_data.loc[p_val, s_val] = volume
-
-    # Normalize to percentage of total volume
-    total_volume = heatmap_data.sum().sum()
-    if total_volume > 0:
-        heatmap_data = (heatmap_data / total_volume) * 100
-
-    return heatmap_data
-
-
-def create_ideal_heatmap_data(location_data, location, primary_attr, secondary_attr):
-    """Create an ideal 2D heatmap based on passenger preferences (Category C)"""
-
-    # Get attribute values
-    primary_values = location_data[location][primary_attr][primary_attr].unique()
-    secondary_values = location_data[location][secondary_attr][secondary_attr].unique()
-
-    # Initialize heatmap data
-    heatmap_data = pd.DataFrame(0, index=primary_values, columns=secondary_values)
-
-    # Get attribute distributions
-    primary_dist = location_data[location][primary_attr]
-    secondary_dist = location_data[location][secondary_attr]
-
-    # Create dictionaries for ideal percentages
-    primary_ideal = {}
-    for _, row in primary_dist.iterrows():
-        primary_ideal[row[primary_attr]] = row['Ideal_Percentage'] if 'Ideal_Percentage' in primary_dist.columns else 0
-
-    secondary_ideal = {}
-    for _, row in secondary_dist.iterrows():
-        secondary_ideal[row[secondary_attr]] = row[
-            'Ideal_Percentage'] if 'Ideal_Percentage' in secondary_dist.columns else 0
-
-    # Calculate joint probabilities (assuming independence)
-    for p_val in primary_values:
-        for s_val in secondary_values:
-            # Joint probability = P(A) * P(B) / 100 (to normalize percentage)
-            heatmap_data.loc[p_val, s_val] = (primary_ideal.get(p_val, 0) * secondary_ideal.get(s_val, 0)) / 100
-
-    # Normalize to ensure total is 100%
-    total = heatmap_data.sum().sum()
-    if total > 0:
-        heatmap_data = (heatmap_data / total) * 100
-
-    return heatmap_data
-
-
-def create_gap_heatmap_data(actual_data, ideal_data):
-    """Create a gap heatmap showing the difference between actual and ideal"""
-
-    # Calculate the gap
-    gap_data = actual_data - ideal_data
-
-    return gap_data
-
-
-def create_shelf_visualization(heatmap_data, color_attr_data, color_attr, primary_attr, secondary_attr,
-                               attribute_colors, title, is_pmi=False):
+def create_shelf_visualization(location_data, location, view_type='actual', primary_attr='flavor',
+                               secondary_attr='taste'):
     """
-    Create a shelf visualization using Plotly
+    Create a shelf visualization for a given location and view type
 
     Parameters:
     -----------
-    heatmap_data : pandas DataFrame
-        2D heatmap data with product distribution
-    color_attr_data : pandas DataFrame
-        Data for the attribute used for coloring
-    color_attr : str
-        The attribute to use for coloring
+    location_data : dict
+        Dictionary containing the data for the location
+    location : str
+        The location to visualize (Kuwait or Jeju)
+    view_type : str
+        The type of view to create (actual or ideal)
     primary_attr : str
-        Primary attribute (y-axis)
+        The primary attribute to use for visualization
     secondary_attr : str
-        Secondary attribute (x-axis)
-    attribute_colors : dict
-        Dictionary with color mappings
-    title : str
-        Title for the visualization
-    is_pmi : bool
-        Whether this is for PMI products only
+        The secondary attribute to use for visualization
 
     Returns:
     --------
     plotly.graph_objects.Figure
     """
-    # Initialize figure
+    # Define color mappings for attributes
+    color_maps = {
+        'flavor': {
+            'regular': '#8B4513',  # Brown
+            'menthol': '#00FF00',  # Green
+            'menthol caps': '#00AA00',  # Dark Green
+            'ntd': '#ADD8E6',  # Light Blue
+            'ntd caps': '#0000FF'  # Blue
+        },
+        'taste': {
+            'full flavor': '#FF0000',  # Red
+            'lights': '#FFA500',  # Orange
+            'ultralights': '#FFFF00',  # Yellow
+            '1mg': '#FFFFAA'  # Light Yellow
+        },
+        'thickness': {
+            'std': '#800080',  # Purple
+            'sli': '#FF00FF',  # Magenta
+            'ssl': '#BA55D3',  # Medium Orchid
+            'mag': '#DA70D6'  # Orchid
+        },
+        'length': {
+            'ks': '#2E8B57',  # Sea Green
+            '100': '#3CB371',  # Medium Sea Green
+            'longer than ks': '#66CDAA',  # Medium Aquamarine
+            'long size': '#8FBC8F',  # Dark Sea Green
+            'regular size': '#90EE90'  # Light Green
+        }
+    }
+
+    # Get the data based on view type
+    if view_type == 'actual':
+        # Use PMI products for actual view
+        products_df = location_data[location]['pmi_products'].copy()
+    else:
+        # Use market data for ideal view
+        products_df = location_data[location]['top_90pct_products'].copy()
+
+    # Get unique values for primary and secondary attributes
+    # Convert column access to lowercase
+    primary_attr_values = location_data[location][primary_attr][primary_attr].unique()
+    secondary_attr_values = location_data[location][secondary_attr][secondary_attr].unique()
+
+    # Create a figure
     fig = go.Figure()
 
-    # Add heatmap as background
-    heatmap_z = heatmap_data.values
+    # Calculate the total volume for normalization
+    total_volume = products_df['df_vol'].sum() if 'df_vol' in products_df.columns else 1.0
 
-    # Create heatmap
-    fig.add_trace(go.Heatmap(
-        z=heatmap_z,
-        x=heatmap_data.columns.tolist(),
-        y=heatmap_data.index.tolist(),
-        colorscale='Blues',
-        opacity=0.7,
-        showscale=True,
-        colorbar=dict(
-            title="% Volume",
-            titleside="right",
-            titlefont=dict(size=14),
-            tickfont=dict(size=12)
-        ),
-        hovertemplate='%{y} × %{x}: %{z:.2f}%<extra></extra>'
-    ))
+    # Create a grid layout
+    n_rows = len(primary_attr_values)
+    n_cols = len(secondary_attr_values)
 
-    # Get color mapping
-    color_map = attribute_colors[color_attr]
+    # Create a heatmap for the background
+    if primary_attr in products_df.columns and secondary_attr in products_df.columns:
+        # Create a grid of product volumes by attributes
+        heatmap_data = np.zeros((n_rows, n_cols))
 
-    # Add bubbles for each attribute combination
-    for i, p_val in enumerate(heatmap_data.index):
-        for j, s_val in enumerate(heatmap_data.columns):
-            # Cell value (percentage)
-            cell_pct = heatmap_data.loc[p_val, s_val]
+        for i, p_val in enumerate(primary_attr_values):
+            for j, s_val in enumerate(secondary_attr_values):
+                # Filter products by primary and secondary attributes
+                mask = (products_df[primary_attr].str.lower() == p_val.lower()) & \
+                       (products_df[secondary_attr].str.lower() == s_val.lower())
 
-            # Skip if percentage is too small
-            if cell_pct < 0.5:
-                continue
+                # Calculate the volume for this cell
+                volume = products_df.loc[mask, 'df_vol'].sum() if 'df_vol' in products_df.columns else 0.0
 
-            # Get color attribute values for this cell position
-            color_values = color_attr_data[color_attr].unique()
+                # Store the normalized volume
+                heatmap_data[i, j] = (volume / total_volume) * 100
 
-            # For each color attribute value, add a bubble
-            for k, c_val in enumerate(color_values):
-                # Calculate position with slight offset based on color value
-                # to avoid complete overlap
-                offset = (k - (len(color_values) - 1) / 2) * 0.2
-                x_pos = j + offset
-                y_pos = i
+        # Add heatmap to figure
+        fig.add_trace(go.Heatmap(
+            z=heatmap_data,
+            x=secondary_attr_values,
+            y=primary_attr_values,
+            colorscale='Blues',
+            colorbar=dict(title='% of Volume'),
+            hoverinfo='text',
+            text=[[f"{p_val} × {s_val}: {heatmap_data[i, j]:.1f}%"
+                   for j, s_val in enumerate(secondary_attr_values)]
+                  for i, p_val in enumerate(primary_attr_values)]
+        ))
 
-                # Get color for this attribute value
-                color = color_map.get(c_val, '#CCCCCC')
+        # Add products as markers
+        for i, p_val in enumerate(primary_attr_values):
+            for j, s_val in enumerate(secondary_attr_values):
+                # Filter products by primary and secondary attributes
+                mask = (products_df[primary_attr].str.lower() == p_val.lower()) & \
+                       (products_df[secondary_attr].str.lower() == s_val.lower())
 
-                # Calculate size - proportional to percentage but minimum size for visibility
-                size = max(20 * np.sqrt(cell_pct), 10)
+                if mask.sum() > 0:
+                    # Get the products for this cell
+                    cell_products = products_df[mask].copy()
 
-                # Add bubble
-                fig.add_trace(go.Scatter(
-                    x=[x_pos],
-                    y=[y_pos],
-                    mode='markers',
-                    marker=dict(
-                        size=size,
-                        color=color,
-                        opacity=0.8,
-                        line=dict(width=1, color='#333333')
-                    ),
-                    name=f"{c_val}",
-                    text=f"{c_val}: {cell_pct:.1f}%",
-                    hoverinfo='text',
-                    showlegend=True
-                ))
+                    # Calculate the total volume for this cell
+                    cell_volume = cell_products['df_vol'].sum() if 'df_vol' in cell_products.columns else 0.0
+
+                    # Normalize the products' volumes within the cell
+                    if cell_volume > 0:
+                        cell_products['normalized_volume'] = cell_products['df_vol'] / cell_volume
+                    else:
+                        cell_products['normalized_volume'] = 0.0
+
+                    # Add a marker for each product
+                    for k, product in cell_products.iterrows():
+                        # Get the product color based on a third attribute
+                        color_attr = list(set(['flavor', 'taste', 'thickness', 'length']) -
+                                          set([primary_attr, secondary_attr]))[0]
+
+                        color_value = product[color_attr].lower() if color_attr in product else 'unknown'
+                        color = color_maps[color_attr].get(color_value, '#CCCCCC')
+
+                        # Calculate marker size based on volume
+                        size = np.sqrt(product['normalized_volume']) * 50
+
+                        # Add slight offsets to avoid complete overlap
+                        x_offset = (np.random.random() - 0.5) * 0.2
+                        y_offset = (np.random.random() - 0.5) * 0.2
+
+                        # Add the marker
+                        fig.add_trace(go.Scatter(
+                            x=[j + x_offset],
+                            y=[i + y_offset],
+                            mode='markers',
+                            marker=dict(
+                                size=size,
+                                color=color,
+                                line=dict(color='white', width=2)
+                            ),
+                            name=f"{product['brand family'] if 'brand family' in product else ''} - {product[color_attr]}",
+                            hoverinfo='text',
+                            text=f"{product['brand family'] if 'brand family' in product else ''}<br>" +
+                                 f"{product['sku'] if 'sku' in product else ''}<br>" +
+                                 f"Volume: {product['df_vol']:.1f}<br>" +
+                                 f"{primary_attr.capitalize()}: {product[primary_attr]}<br>" +
+                                 f"{secondary_attr.capitalize()}: {product[secondary_attr]}<br>" +
+                                 f"{color_attr.capitalize()}: {product[color_attr]}"
+                        ))
 
     # Update layout
     fig.update_layout(
-        title=dict(
-            text=title,
-            font=dict(size=18, color="#333333")
-        ),
+        title=f"{location} - {'PMI Portfolio' if view_type == 'actual' else 'Ideal Market Portfolio'}",
         xaxis=dict(
-            title=dict(text=secondary_attr.capitalize(), font=dict(size=14)),
-            tickfont=dict(size=12),
-            gridcolor='#eeeeee'
+            title=secondary_attr.capitalize(),
+            tickmode='array',
+            tickvals=list(range(len(secondary_attr_values))),
+            ticktext=secondary_attr_values
         ),
         yaxis=dict(
-            title=dict(text=primary_attr.capitalize(), font=dict(size=14)),
-            tickfont=dict(size=12),
-            gridcolor='#eeeeee'
+            title=primary_attr.capitalize(),
+            tickmode='array',
+            tickvals=list(range(len(primary_attr_values))),
+            ticktext=primary_attr_values
         ),
-        legend=dict(
-            title=dict(text=color_attr.capitalize(), font=dict(size=14)),
-            font=dict(size=12)
-        ),
-        margin=dict(l=80, r=80, t=100, b=80),
-        height=700,
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        hovermode='closest'
-    )
-
-    # Group legend items by color attribute value
-    fig.update_layout(
-        legend_tracegroupgap=0
+        height=600,
+        width=800
     )
 
     return fig
 
 
-# Define layout
+# Initialize the app
+app = dash.Dash(__name__)
+
+# Load data
+data = load_location_data()
+
+# Define app layout
 app.layout = html.Div([
-    html.Div([
-        html.Div([
-            html.H3("Portfolio Controls", className="card-title"),
-
-            html.Div([
-                html.Label("Select Location"),
-                dcc.Dropdown(
-                    id="location-dropdown",
-                    options=[
-                        {"label": "Kuwait (Well-Aligned)", "value": "Kuwait"},
-                        {"label": "Jeju (Misaligned)", "value": "Jeju"}
-                    ],
-                    value="Kuwait",
-                    clearable=False
-                )
-            ], className="mb-4"),
-
-            html.Div([
-                html.H4("Shelf Attributes", className="mt-4 mb-2"),
-
-                html.Div([
-                    html.Label("Primary Attribute (Y-axis)"),
-                    dcc.Dropdown(
-                        id="primary-attr-dropdown",
-                        options=[
-                            {"label": "Flavor", "value": "flavor"},
-                            {"label": "Taste", "value": "taste"},
-                            {"label": "Thickness", "value": "thickness"},
-                            {"label": "Length", "value": "length"}
-                        ],
-                        value="flavor",
-                        clearable=False
-                    )
-                ], className="mb-3"),
-
-                html.Div([
-                    html.Label("Secondary Attribute (X-axis)"),
-                    dcc.Dropdown(
-                        id="secondary-attr-dropdown",
-                        options=[
-                            {"label": "Flavor", "value": "flavor"},
-                            {"label": "Taste", "value": "taste"},
-                            {"label": "Thickness", "value": "thickness"},
-                            {"label": "Length", "value": "length"}
-                        ],
-                        value="taste",
-                        clearable=False
-                    )
-                ], className="mb-3"),
-
-                html.Div([
-                    html.Label("Color Products By"),
-                    dcc.Dropdown(
-                        id="color-attr-dropdown",
-                        options=[
-                            {"label": "Flavor", "value": "flavor"},
-                            {"label": "Taste", "value": "taste"},
-                            {"label": "Thickness", "value": "thickness"},
-                            {"label": "Length", "value": "length"}
-                        ],
-                        value="thickness",
-                        clearable=False
-                    )
-                ], className="mb-3"),
-            ]),
-
-            html.Div([
-                html.H4("Validation Warnings", className="mt-4 mb-2"),
-                html.Div(id="validation-warnings")
-            ])
-
-        ], className="card", style={"gridArea": "controls"}),
-
-        html.Div([
-            html.H3("Market Information", className="card-title"),
-            html.Div(id="market-info"),
-        ], className="card", style={"gridArea": "market"}),
-
-        html.Div([
-            html.H3("Category Scores", className="card-title"),
-            html.Div(id="category-scores"),
-        ], className="card", style={"gridArea": "scores"}),
-
-        html.Div([
-            html.H3("Portfolio Insights", className="card-title"),
-            html.Div(id="portfolio-insights"),
-        ], className="card", style={"gridArea": "insights"})
-    ], style={
-        "display": "grid",
-        "gridTemplateAreas": "'controls market' 'controls scores' 'controls insights'",
-        "gridTemplateColumns": "350px 1fr",
-        "gridGap": "20px",
-        "marginBottom": "20px"
-    }),
+    html.H1("PMI Portfolio Shelf Visualization"),
 
     html.Div([
-        dcc.Tabs(id='visualization-tabs', value='comparison', children=[
-            dcc.Tab(label='Market vs PMI Comparison', value='comparison', className="custom-tab",
-                    selected_className="custom-tab--selected"),
-            dcc.Tab(label='PMI Portfolio Detail', value='pmi', className="custom-tab",
-                    selected_className="custom-tab--selected"),
-            dcc.Tab(label='Ideal Market Portfolio', value='ideal', className="custom-tab",
-                    selected_className="custom-tab--selected"),
-        ]),
-        html.Div(id='tab-content', className="tab-content")
-    ], className="card"),
+        html.Div([
+            html.Label("Select Location:"),
+            dcc.Dropdown(
+                id='location-dropdown',
+                options=[
+                    {'label': 'Kuwait (Well-Aligned)', 'value': 'Kuwait'},
+                    {'label': 'Jeju (Misaligned)', 'value': 'Jeju'}
+                ],
+                value='Kuwait'
+            )
+        ], style={'width': '33%', 'display': 'inline-block'}),
 
-    # Store data in hidden divs
-    html.Div(id='stored-data', style={'display': 'none'}),
-    html.Div(id='stored-validation-data', style={'display': 'none'}),
+        html.Div([
+            html.Label("Primary Attribute (Y-axis):"),
+            dcc.Dropdown(
+                id='primary-attr-dropdown',
+                options=[
+                    {'label': 'Flavor', 'value': 'flavor'},
+                    {'label': 'Taste', 'value': 'taste'},
+                    {'label': 'Thickness', 'value': 'thickness'},
+                    {'label': 'Length', 'value': 'length'}
+                ],
+                value='flavor'
+            )
+        ], style={'width': '33%', 'display': 'inline-block'}),
+
+        html.Div([
+            html.Label("Secondary Attribute (X-axis):"),
+            dcc.Dropdown(
+                id='secondary-attr-dropdown',
+                options=[
+                    {'label': 'Flavor', 'value': 'flavor'},
+                    {'label': 'Taste', 'value': 'taste'},
+                    {'label': 'Thickness', 'value': 'thickness'},
+                    {'label': 'Length', 'value': 'length'}
+                ],
+                value='taste'
+            )
+        ], style={'width': '33%', 'display': 'inline-block'})
+    ]),
+
+    html.Div([
+        html.Div([
+            html.H3("PMI Portfolio"),
+            dcc.Graph(id='actual-shelf')
+        ], style={'width': '48%', 'display': 'inline-block'}),
+
+        html.Div([
+            html.H3("Ideal Market Portfolio"),
+            dcc.Graph(id='ideal-shelf')
+        ], style={'width': '48%', 'display': 'inline-block'})
+    ]),
+
+    html.Div([
+        html.H3("Portfolio Summary"),
+        html.Div(id='summary-stats')
+    ])
 ])
 
 
-# Callback to load and store data
+# Define callbacks
 @app.callback(
-    [Output('stored-data', 'children'),
-     Output('stored-validation-data', 'children')],
-    [Input('location-dropdown', 'value')]
-)
-def load_and_store_data(location):
-    # Load data
-    location_data = load_location_data()
-    validation_data = load_validation_data()
-
-    # Prepare data for storage (select only what we need)
-    selected_data = {
-        'Kuwait': {},
-        'Jeju': {}
-    }
-
-    for loc in ['Kuwait', 'Jeju']:
-        for key in ['flavor', 'taste', 'thickness', 'length', 'summary']:
-            if key in location_data[loc]:
-                selected_data[loc][key] = location_data[loc][key].to_dict(orient='records')
-
-        if 'pmi_products' in location_data[loc]:
-            # For product data, just store CR_BrandId, attributes, and DF_Vol
-            cols = ['CR_BrandId', 'flavor', 'taste', 'thickness', 'length', 'DF_Vol']
-            available_cols = [col for col in cols if col in location_data[loc]['pmi_products'].columns]
-            selected_data[loc]['pmi_products'] = location_data[loc]['pmi_products'][available_cols].to_dict(
-                orient='records')
-
-        if 'top_90pct_products' in location_data[loc]:
-            # For product data, just store CR_BrandId, attributes, and DF_Vol
-            cols = ['CR_BrandId', 'flavor', 'taste', 'thickness', 'length', 'DF_Vol']
-            available_cols = [col for col in cols if col in location_data[loc]['top_90pct_products'].columns]
-            selected_data[loc]['top_90pct_products'] = location_data[loc]['top_90pct_products'][available_cols].to_dict(
-                orient='records')
-
-    # Convert to JSON
-    return json.dumps(selected_data), json.dumps(validation_data)
-
-
-# Callback to validate attribute selection
-@app.callback(
-    Output('validation-warnings', 'children'),
-    [Input('primary-attr-dropdown', 'value'),
-     Input('secondary-attr-dropdown', 'value'),
-     Input('color-attr-dropdown', 'value')]
-)
-def validate_attributes(primary_attr, secondary_attr, color_attr):
-    warnings = []
-
-    if primary_attr == secondary_attr:
-        warnings.append(html.Div([
-            html.I(className="fas fa-exclamation-triangle", style={"marginRight": "10px"}),
-            "Primary and secondary attributes should be different"
-        ], className="warning-box"))
-
-    if primary_attr == color_attr or secondary_attr == color_attr:
-        warnings.append(html.Div([
-            html.I(className="fas fa-info-circle", style={"marginRight": "10px"}),
-            "For best results, color attribute should be different from shelf axes"
-        ], className="info-box"))
-
-    return warnings
-
-
-# Callback to display market information
-@app.callback(
-    Output('market-info', 'children'),
+    [Output('actual-shelf', 'figure'),
+     Output('ideal-shelf', 'figure'),
+     Output('summary-stats', 'children')],
     [Input('location-dropdown', 'value'),
-     Input('stored-data', 'children')]
+     Input('primary-attr-dropdown', 'value'),
+     Input('secondary-attr-dropdown', 'value')]
 )
-def display_market_info(location, stored_data):
-    if not stored_data:
-        return []
+def update_figures(location, primary_attr, secondary_attr):
+    # Print for debugging
+    print(f"Updating figures for {location} with {primary_attr} and {secondary_attr}")
 
-    # Parse stored data
-    data = json.loads(stored_data)
+    # Check that we have the necessary data
+    if location not in data or primary_attr not in data[location] or secondary_attr not in data[location]:
+        return go.Figure(), go.Figure(), html.Div("Data not available for the selected options")
 
-    # Market share (default values)
-    market_shares = {
-        "Kuwait": 75,  # Approximate as per documentation
-        "Jeju": 12  # Approximate as per documentation
-    }
+    # Create figures
+    actual_fig = create_shelf_visualization(data, location, 'actual', primary_attr, secondary_attr)
+    ideal_fig = create_shelf_visualization(data, location, 'ideal', primary_attr, secondary_attr)
 
-    # Try to extract more accurate market share from data
+    # Create summary stats
     if 'summary' in data[location]:
-        summary = data[location]['summary']
-        for row in summary:
-            if 'Category' in row and 'Metric' in row and 'Value' in row:
-                if 'Market Share' in row['Category'] and 'PMI Share' in row['Metric']:
-                    try:
-                        share_str = row['Value']
-                        if isinstance(share_str, str) and '%' in share_str:
-                            market_shares[location] = float(share_str.strip('%'))
-                    except:
-                        pass
+        summary_df = data[location]['summary']
 
-    # Create metric cards
-    market_share_card = html.Div([
-        html.Div(f"{market_shares[location]}%", className="metric-value"),
-        html.Div("PMI Market Share", className="metric-label")
-    ], className="metric-card")
-
-    # Get SKU counts
-    pmi_skus = len(data[location].get('pmi_products', []))
-    total_skus = len(data[location].get('top_90pct_products', []))
-
-    sku_card = html.Div([
-        html.Div([
-            html.Span(f"{pmi_skus}", style={"fontWeight": "bold"}),
-            html.Span(f" / {total_skus}")
-        ], className="metric-value"),
-        html.Div("PMI SKUs / Total SKUs", className="metric-label")
-    ], className="metric-card")
-
-    # Create status indicator
-    status = "Well-aligned" if market_shares[location] > 40 else "Misaligned"
-    status_color = "green" if status == "Well-aligned" else "red"
-
-    status_card = html.Div([
-        html.Div(status, className="metric-value", style={"color": status_color}),
-        html.Div("Portfolio Status", className="metric-label")
-    ], className="metric-card")
-
-    return [
-        html.Div([
-            market_share_card,
-            sku_card,
-            status_card
-        ], style={"display": "flex", "justifyContent": "space-between"})
-    ]
-
-
-# Callback to display category scores
-@app.callback(
-    Output('category-scores', 'children'),
-    [Input('location-dropdown', 'value'),
-     Input('stored-validation-data', 'children')]
-)
-def display_category_scores(location, stored_validation_data):
-    if not stored_validation_data:
-        return []
-
-    # Parse stored data
-    validation_data = json.loads(stored_validation_data)
-
-    # Default category scores
-    category_scores = {
-        "Kuwait": {"A": 9.64, "B": 8.10, "C": 3.93, "D": 5.03},
-        "Jeju": {"A": 7.53, "B": 4.37, "C": 6.93, "D": 5.82}
-    }
-
-    # Try to extract from validation data
-    if location in validation_data and 'category_c_score' in validation_data[location]:
-        category_scores[location]["C"] = validation_data[location]['category_c_score']
-
-    # Create score cards
-    score_cards = []
-
-    for category, score in category_scores[location].items():
-        color = "green" if score >= 7.5 else ("orange" if score >= 5 else "red")
-
-        card = html.Div([
-            html.Div(f"{score:.2f}", className="metric-value", style={"color": color}),
-            html.Div(f"Category {category}", className="metric-label")
-        ], className="metric-card")
-
-        score_cards.append(card)
-
-    # Calculate average score
-    avg_score = sum(category_scores[location].values()) / len(category_scores[location])
-    avg_color = "green" if avg_score >= 7.5 else ("orange" if avg_score >= 5 else "red")
-
-    avg_card = html.Div([
-        html.Div(f"{avg_score:.2f}", className="metric-value", style={"color": avg_color}),
-        html.Div("Average Score", className="metric-label")
-    ], className="metric-card")
-
-    score_cards.append(avg_card)
-
-    return [
-        html.Div(score_cards, style={"display": "flex", "justifyContent": "space-between"})
-    ]
-
-
-# Callback to display portfolio insights
-@app.callback(
-    Output('portfolio-insights', 'children'),
-    [Input('location-dropdown', 'value'),
-     Input('primary-attr-dropdown', 'value'),
-     Input('stored-data', 'children')]
-)
-def display_portfolio_insights(location, primary_attr, stored_data):
-    if not stored_data:
-        return []
-
-    # Parse stored data
-    data = json.loads(stored_data)
-
-    insights = []
-
-    # Location-specific insights
-    if location == "Kuwait":
-        insights.append(html.Div([
-            html.I(className="fas fa-check-circle", style={"marginRight": "10px", "color": "green"}),
-            "Kuwait shows strong portfolio alignment with consumer preferences, particularly in Flavor and Taste attributes."
-        ], className="info-box"))
-
-        insights.append(html.Div([
-            html.I(className="fas fa-chart-line", style={"marginRight": "10px", "color": "green"}),
-            "This alignment contributes to the high market share of approximately 75%."
-        ], className="info-box"))
-    else:  # Jeju
-        insights.append(html.Div([
-            html.I(className="fas fa-exclamation-circle", style={"marginRight": "10px", "color": "red"}),
-            "Jeju shows significant misalignment in its portfolio, especially in Taste and Length attributes."
-        ], className="warning-box"))
-
-        insights.append(html.Div([
-            html.I(className="fas fa-chart-line", style={"marginRight": "10px", "color": "red"}),
-            "This misalignment contributes to the lower market share of approximately 12%."
-        ], className="warning-box"))
-
-    # Primary attribute insights
-    if primary_attr in data[location]:
-        primary_data = data[location][primary_attr]
-
-        # Convert list of dicts to pandas DataFrame
-        primary_df = pd.DataFrame(primary_data)
-
-        # Try to extract gaps
-        if 'PMI_vs_Ideal_Gap' in primary_df.columns and primary_attr in primary_df.columns:
-            # Find most underrepresented attributes
-            underrep = primary_df.sort_values('PMI_vs_Ideal_Gap').head(2)
-
-            if not underrep.empty:
-                underrep_values = [row[primary_attr] for _, row in underrep.iterrows()]
-                insights.append(html.Div([
-                    html.I(className="fas fa-arrow-down", style={"marginRight": "10px", "color": "red"}),
-                    f"Most underrepresented {primary_attr}: ",
-                    html.B(", ".join(underrep_values))
-                ], className="info-box"))
-
-            # Find most overrepresented attributes
-            overrep = primary_df.sort_values('PMI_vs_Ideal_Gap', ascending=False).head(2)
-
-            if not overrep.empty:
-                overrep_values = [row[primary_attr] for _, row in overrep.iterrows()]
-                insights.append(html.Div([
-                    html.I(className="fas fa-arrow-up", style={"marginRight": "10px", "color": "blue"}),
-                    f"Most overrepresented {primary_attr}: ",
-                    html.B(", ".join(overrep_values))
-                ], className="info-box"))
-
-    return insights
-
-
-# Callback to display tab content
-@app.callback(
-    Output('tab-content', 'children'),
-    [Input('visualization-tabs', 'value'),
-     Input('location-dropdown', 'value'),
-     Input('primary-attr-dropdown', 'value'),
-     Input('secondary-attr-dropdown', 'value'),
-     Input('color-attr-dropdown', 'value'),
-     Input('stored-data', 'children')]
-)
-def display_tab_content(tab, location, primary_attr, secondary_attr, color_attr, stored_data):
-    if not stored_data:
-        return []
-
-    # Parse stored data
-    data_dict = json.loads(stored_data)
-
-    # Convert dictionary back to DataFrames
-    data = {
-        'Kuwait': {},
-        'Jeju': {}
-    }
-
-    for loc in ['Kuwait', 'Jeju']:
-        for key in data_dict[loc]:
-            data[loc][key] = pd.DataFrame(data_dict[loc][key])
-
-    # Get attribute colors
-    attribute_colors = get_attribute_colors()
-
-    if tab == 'comparison':
-        # Create market, PMI, and ideal heatmaps
+        # Extract market share
         try:
-            market_heatmap = create_attribute_heatmap_data(data, location, primary_attr, secondary_attr)
-            pmi_heatmap = create_pmi_heatmap_data(data, location, primary_attr, secondary_attr)
-            ideal_heatmap = create_ideal_heatmap_data(data, location, primary_attr, secondary_attr)
+            market_share = summary_df[summary_df['metric'] == 'PMI Share in Top 90% Products']['value'].iloc[0]
+            market_share = market_share.replace('%', '') if isinstance(market_share, str) else market_share
+            market_share = float(market_share)
+        except:
+            market_share = "N/A"
 
-            # Create visualizations
-            market_fig = create_shelf_visualization(
-                market_heatmap, data[location][color_attr], color_attr,
-                primary_attr, secondary_attr, attribute_colors,
-                f"{location} - Market Portfolio", False
-            )
+        # Create summary component
+        summary_stats = html.Div([
+            html.H4(f"{location} Market Summary"),
+            html.P(f"PMI Market Share: {market_share}%"),
+            html.P(f"Category C Score: {data[location].get('category_c_score', 'N/A')}"),
 
-            pmi_fig = create_shelf_visualization(
-                pmi_heatmap, data[location][color_attr], color_attr,
-                primary_attr, secondary_attr, attribute_colors,
-                f"{location} - PMI Portfolio", True
-            )
+            html.H4("Portfolio Alignment:"),
+            html.Ul([
+                html.Li(f"{primary_attr.capitalize()} Alignment: "
+                        f"{'Good' if location == 'Kuwait' else 'Poor'}"),
+                html.Li(f"{secondary_attr.capitalize()} Alignment: "
+                        f"{'Good' if location == 'Kuwait' else 'Poor'}"),
+            ]),
 
-            # Create layout
-            return [
-                html.Div([
-                    html.H3("Market vs PMI Portfolio Comparison", className="card-title"),
-                    html.Div([
-                        html.Div([
-                            dcc.Graph(figure=market_fig, id='market-graph')
-                        ], className="graph-container", style={"width": "50%"}),
-                        html.Div([
-                            dcc.Graph(figure=pmi_fig, id='pmi-graph')
-                        ], className="graph-container", style={"width": "50%"})
-                    ], style={"display": "flex", "justifyContent": "space-between"}),
-
-                    html.Div([
-                        html.H3("Gap Analysis", className="card-title"),
-                        html.Div([
-                            html.Div([
-                                html.H4("Market vs Ideal Portfolio Gaps"),
-                                display_gap_analysis(market_heatmap, ideal_heatmap, primary_attr, secondary_attr)
-                            ], className="card", style={"width": "48%"}),
-                            html.Div([
-                                html.H4("PMI vs Ideal Portfolio Gaps"),
-                                display_gap_analysis(pmi_heatmap, ideal_heatmap, primary_attr, secondary_attr)
-                            ], className="card", style={"width": "48%"})
-                        ], style={"display": "flex", "justifyContent": "space-between"})
-                    ])
-                ])
-            ]
-
-        except Exception as e:
-            return [
-                html.Div([
-                    html.H3("Error Creating Visualization", className="card-title"),
-                    html.Div(f"An error occurred: {str(e)}", className="warning-box")
-                ])
-            ]
-
-    elif tab == 'pmi':
-        # Create PMI heatmap
-        try:
-            pmi_heatmap = create_pmi_heatmap_data(data, location, primary_attr, secondary_attr)
-
-            # Create visualization
-            pmi_fig = create_shelf_visualization(
-                pmi_heatmap, data[location][color_attr], color_attr,
-                primary_attr, secondary_attr, attribute_colors,
-                f"{location} - PMI Portfolio Detail", True
-            )
-
-            # Get PMI product data
-            pmi_products = data[location]['pmi_products']
-
-            # Create layout
-            return [
-                html.Div([
-                    html.H3("PMI Portfolio Detail", className="card-title"),
-                    dcc.Graph(figure=pmi_fig, id='pmi-detail-graph'),
-
-                    html.Div([
-                        html.H3("PMI Portfolio Statistics", className="card-title"),
-                        html.Div([
-                            html.Div([
-                                html.H4("Product Distribution"),
-                                display_product_statistics(pmi_products, primary_attr)
-                            ], className="card", style={"width": "48%"}),
-                            html.Div([
-                                html.H4("Brand Statistics"),
-                                display_brand_statistics(pmi_products)
-                            ], className="card", style={"width": "48%"})
-                        ], style={"display": "flex", "justifyContent": "space-between"})
-                    ])
-                ])
-            ]
-
-        except Exception as e:
-            return [
-                html.Div([
-                    html.H3("Error Creating Visualization", className="card-title"),
-                    html.Div(f"An error occurred: {str(e)}", className="warning-box")
-                ])
-            ]
-
-    elif tab == 'ideal':
-        # Create ideal heatmap
-        try:
-            ideal_heatmap = create_ideal_heatmap_data(data, location, primary_attr, secondary_attr)
-
-            # Create visualization
-            ideal_fig = create_shelf_visualization(
-                ideal_heatmap, data[location][color_attr], color_attr,
-                primary_attr, secondary_attr, attribute_colors,
-                f"{location} - Ideal Portfolio (Based on Category C)", False
-            )
-
-            # Create layout
-            return [
-                html.Div([
-                    html.H3("Ideal Market Portfolio", className="card-title"),
-                    dcc.Graph(figure=ideal_fig, id='ideal-graph'),
-
-                    html.Div([
-                        html.H3("Category C Information", className="card-title"),
-                        html.Div([
-                            html.P([
-                                "Category C measures how well the portfolio aligns with passenger nationality mix ",
-                                "and the corresponding consumption preferences. A higher score indicates better alignment ",
-                                "with passenger mix-based preferences."
-                            ]),
-
-                            html.H4(f"Ideal {primary_attr.capitalize()} Distribution (Based on Passenger Mix):"),
-                            display_ideal_distribution(data[location][primary_attr], primary_attr)
-                        ], className="info-box")
-                    ])
-                ])
-            ]
-
-        except Exception as e:
-            return [
-                html.Div([
-                    html.H3("Error Creating Visualization", className="card-title"),
-                    html.Div(f"An error occurred: {str(e)}", className="warning-box")
-                ])
-            ]
-
-    return []
-
-
-def display_gap_analysis(actual_data, ideal_data, primary_attr, secondary_attr):
-    """Display gap analysis between actual and ideal data"""
-
-    # Calculate gap
-    gap_data = create_gap_heatmap_data(actual_data, ideal_data)
-
-    # Get top gaps (both positive and negative)
-    gap_values = []
-
-    for p_val in gap_data.index:
-        for s_val in gap_data.columns:
-            gap = gap_data.loc[p_val, s_val]
-            if abs(gap) > 0.5:  # Only include non-trivial gaps
-                gap_values.append({
-                    'primary': p_val,
-                    'secondary': s_val,
-                    'gap': gap,
-                    'abs_gap': abs(gap)
-                })
-
-    # Sort by absolute gap
-    gap_values = sorted(gap_values, key=lambda x: x['abs_gap'], reverse=True)
-
-    # Create gap list
-    gap_items = []
-
-    for i, gap_info in enumerate(gap_values[:5]):  # Show top 5 gaps
-        direction = "deficit" if gap_info['gap'] < 0 else "excess"
-        color = "red" if gap_info['gap'] < 0 else "blue"
-
-        item = html.Div([
-            html.I(className=f"fas fa-{'minus' if gap_info['gap'] < 0 else 'plus'}-circle",
-                   style={"marginRight": "10px", "color": color}),
-            f"{gap_info['primary']} × {gap_info['secondary']}: ",
-            html.B(f"{abs(gap_info['gap']):.1f}% {direction}")
-        ], className="info-box", style={"margin": "5px 0"})
-
-        gap_items.append(item)
-
-    if not gap_items:
-        gap_items = [html.Div("No significant gaps found", className="info-box")]
-
-    return html.Div(gap_items)
-
-
-def display_product_statistics(product_data, attr):
-    """Display product statistics for a given attribute"""
-
-    if attr not in product_data.columns:
-        return html.Div("Attribute data not available", className="warning-box")
-
-    # Group by attribute and calculate total volume
-    if 'DF_Vol' in product_data.columns:
-        distribution = product_data.groupby(attr)['DF_Vol'].sum()
-        total_vol = distribution.sum()
-
-        # Calculate percentages
-        percentages = {}
-        for attr_val, vol in distribution.items():
-            if total_vol > 0:
-                percentages[attr_val] = (vol / total_vol) * 100
-
-        # Sort by percentage
-        sorted_items = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
-
-        # Create list items
-        items = []
-
-        for attr_val, pct in sorted_items:
-            items.append(html.Div([
-                html.Span(f"{attr_val}: ", style={"fontWeight": "bold"}),
-                html.Span(f"{pct:.1f}%")
-            ], style={"margin": "5px 0"}))
-
-        return html.Div(items)
-
-    # If no volume data, just count SKUs
+            html.H4("Recommendations:"),
+            html.Ul([
+                html.Li(f"{'Maintain current mix' if location == 'Kuwait' else 'Optimize product attributes'}")
+            ])
+        ])
     else:
-        counts = product_data[attr].value_counts()
-        total = counts.sum()
+        summary_stats = html.Div("Summary data not available")
 
-        # Calculate percentages
-        percentages = {}
-        for attr_val, count in counts.items():
-            if total > 0:
-                percentages[attr_val] = (count / total) * 100
-
-        # Sort by percentage
-        sorted_items = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
-
-        # Create list items
-        items = []
-
-        for attr_val, pct in sorted_items:
-            items.append(html.Div([
-                html.Span(f"{attr_val}: ", style={"fontWeight": "bold"}),
-                html.Span(f"{pct:.1f}% ({counts[attr_val]} SKUs)")
-            ], style={"margin": "5px 0"}))
-
-        return html.Div(items)
+    return actual_fig, ideal_fig, summary_stats
 
 
-def display_brand_statistics(product_data):
-    """Display brand statistics"""
-
-    if 'Brand Family' not in product_data.columns:
-        return html.Div("Brand data not available", className="warning-box")
-
-    # Group by brand and calculate total volume
-    if 'DF_Vol' in product_data.columns:
-        distribution = product_data.groupby('Brand Family')['DF_Vol'].sum()
-        total_vol = distribution.sum()
-
-        # Calculate percentages
-        percentages = {}
-        for brand, vol in distribution.items():
-            if total_vol > 0:
-                percentages[brand] = (vol / total_vol) * 100
-
-        # Sort by percentage
-        sorted_items = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
-
-        # Create list items
-        items = []
-
-        for brand, pct in sorted_items:
-            items.append(html.Div([
-                html.Span(f"{brand}: ", style={"fontWeight": "bold"}),
-                html.Span(f"{pct:.1f}% ({distribution[brand]:,.1f} units)")
-            ], style={"margin": "5px 0"}))
-
-        return html.Div(items)
-
-    # If no volume data, just count SKUs
-    else:
-        counts = product_data['Brand Family'].value_counts()
-        total = counts.sum()
-
-        # Calculate percentages
-        percentages = {}
-        for brand, count in counts.items():
-            if total > 0:
-                percentages[brand] = (count / total) * 100
-
-        # Sort by percentage
-        sorted_items = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
-
-        # Create list items
-        items = []
-
-        for brand, pct in sorted_items:
-            items.append(html.Div([
-                html.Span(f"{brand}: ", style={"fontWeight": "bold"}),
-                html.Span(f"{pct:.1f}% ({counts[brand]} SKUs)")
-            ], style={"margin": "5px 0"}))
-
-        return html.Div(items)
-
-
-def display_ideal_distribution(attr_data, attr_name):
-    """Display ideal distribution for an attribute"""
-
-    if attr_name not in attr_data.columns or 'Ideal_Percentage' not in attr_data.columns:
-        return html.Div("Ideal distribution data not available", className="warning-box")
-
-    # Sort by ideal percentage
-    sorted_data = attr_data.sort_values('Ideal_Percentage', ascending=False)
-
-    # Create list items
-    items = []
-
-    for _, row in sorted_data.iterrows():
-        items.append(html.Div([
-            html.Span(f"{row[attr_name]}: ", style={"fontWeight": "bold"}),
-            html.Span(f"{row['Ideal_Percentage']:.1f}%")
-        ], style={"margin": "5px 0"}))
-
-    return html.Div(items)
-
-
-# Main entry point
+# Run the app
 if __name__ == '__main__':
     app.run_server(debug=True)
