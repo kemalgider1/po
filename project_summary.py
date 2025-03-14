@@ -33,7 +33,7 @@ DATA_PROCESSING_FILES = """
 
 # Portfolio Visualization
 VISUALIZATION_FILES = """
-- portfolio-visualization.py: Main visualization script for product portfolio
+- portfolio_visualization.py: Main visualization script for product portfolio
 - portfolio-analysis-testing.py: Test script for visualization validation
 """
 
@@ -96,7 +96,7 @@ portfolio-optimization-project/
 │   │   ├── analyse_k.py
 │   │   └── category-c-validation.py
 │   ├── visualization/
-│   │   ├── portfolio-visualization.py
+│   │   ├── portfolio_visualization.py
 │   │   └── portfolio-analysis-testing.py
 │   ├── recommendations/
 │   │   └── optimization-recommendations-engine.py
@@ -136,7 +136,7 @@ Execution Flow:
    - Output location-specific analysis files to locations_data/
 
 3. Portfolio Visualization
-   - Run portfolio-visualization.py to generate comparative visualizations
+   - Run portfolio_visualization.py to generate comparative visualizations
    - Output visualization files to visualization_results/
    - (Optional) Run portfolio-analysis-testing.py to validate visualizations
 

@@ -3,1201 +3,725 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
+from pathlib import Path
 import os
-import json
 
-def load_comparison_data(comparison_file_path):
+
+def load_data(data_dir):
     """
-    Load and process the comparison data between Kuwait and Jeju.
+    Load data files from the specified directory
 
     Args:
-        comparison_file_path (str): Path to the comparison CSV file
+        data_dir (str): Path to data directory
 
     Returns:
-        DataFrame: Processed comparison data
+        dict: Dictionary containing loaded dataframes
     """
-    print("Loading comparison data...")
-    try:
-        comp_df = pd.read_csv(comparison_file_path)
-        return comp_df
-    except Exception as e:
-        print(f"Error loading comparison data: {e}")
-        return None
+    data = {
+        'kuwait': {},
+        'jeju': {}
+    }
 
-def load_product_data(kw_products_path, jj_products_path):
-    """
-    Load the product data for Kuwait and Jeju.
+    # Load Kuwait data
+    kuwait_files = {
+        'flavor': 'Kuwait_product_analysis_Flavor_Distribution.csv',
+        'taste': 'Kuwait_product_analysis_Taste_Distribution.csv',
+        'thickness': 'Kuwait_product_analysis_Thickness_Distribution.csv',
+        'length': 'Kuwait_product_analysis_Length_Distribution.csv',
+        'summary': 'Kuwait_product_analysis_Summary.csv',
+        'products': 'Kuwait_product_analysis_PMI_Products.csv',
+        'top_products': 'Kuwait_product_analysis_Top_90pct_Products.csv'
+    }
 
-    Args:
-        kw_products_path (str): Path to Kuwait products data
-        jj_products_path (str): Path to Jeju products data
+    # Load Jeju data
+    jeju_files = {
+        'flavor': 'jeju_product_analysis_Flavor_Distribution.csv',
+        'taste': 'jeju_product_analysis_Taste_Distribution.csv',
+        'thickness': 'jeju_product_analysis_Thickness_Distribution.csv',
+        'length': 'jeju_product_analysis_Length_Distribution.csv',
+        'summary': 'jeju_product_analysis_Summary.csv',
+        'products': 'jeju_product_analysis_PMI_Products.csv',
+        'top_products': 'jeju_product_analysis_Top_90pct_Products.csv'
+    }
 
-    Returns:
-        tuple: (kw_df, jj_df) Kuwait and Jeju product dataframes
-    """
-    print("Loading product data...")
-    try:
-        kw_df = pd.read_csv(kw_products_path)
-        jj_df = pd.read_csv(jj_products_path)
-        return kw_df, jj_df
-    except Exception as e:
-        print(f"Error loading product data: {e}")
-        return None, None
-
-def load_attribute_analysis(kw_product_based_path, jj_product_based_path):
-    """
-    Load the attribute analysis data for Kuwait and Jeju.
-
-    Args:
-        kw_product_based_path (str): Path to Kuwait product-based analysis
-        jj_product_based_path (str): Path to Jeju product-based analysis
-
-    Returns:
-        tuple: (kw_attr_df, jj_attr_df) Kuwait and Jeju attribute analysis dataframes
-    """
-    print("Loading attribute analysis data...")
-    try:
-        kw_attr_df = pd.read_csv(kw_product_based_path)
-        jj_attr_df = pd.read_csv(jj_product_based_path)
-        return kw_attr_df, jj_attr_df
-    except Exception as e:
-        print(f"Error loading attribute analysis data: {e}")
-        return None, None
-
-def load_paris_output(paris_output_path):
-    """
-    Load PARIS Output data containing ideal vs. real segment distribution.
-
-    Args:
-        paris_output_path (str): Path to PARIS_Output data file
-
-    Returns:
-        DataFrame: Loaded PARIS data
-    """
-    print("Loading PARIS Output data...")
-    try:
-        paris_df = pd.read_csv(paris_output_path)
-        required_cols = ["Location", "Real_So_Segment", "Ideal_So_Segment", "Delta_SoS"]
-        missing_cols = [col for col in required_cols if col not in paris_df.columns]
-
-        if missing_cols:
-            print(f"Warning: PARIS data is missing required columns: {missing_cols}")
-            print("Available columns:", paris_df.columns.tolist())
-
-        return paris_df
-    except Exception as e:
-        print(f"Error loading PARIS data: {e}")
-        return None
-
-def create_attribute_grid_visualization(comp_df, attribute, location1='Kuwait', location2='Jeju', paris_df=None):
-    """
-    Create a grid visualization comparing attribute distribution for two locations.
-
-    Args:
-        comp_df (DataFrame): Comparison data
-        attribute (str): Attribute to visualize (Flavor, Taste, Thickness, Length)
-        location1 (str): First location to compare (should be Kuwait - well aligned)
-        location2 (str): Second location to compare (should be Jeju - misaligned)
-        paris_df (DataFrame, optional): PARIS Output data for more accurate ideal values
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the grid visualization
-    """
-    # Create figure with two subplots side by side
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-
-    # Extract attribute distribution data from comparison data
-    locations = [location1, location2]
-    location_data = {}
-
-    for loc in locations:
-        attr_values = []
-        actual_vals = []
-        pmi_vals = []
-        ideal_vals = []
-        gaps = []
-
-        # First try to extract from PARIS data if available
-        if paris_df is not None and attribute in paris_df.columns:
-            loc_paris = paris_df[paris_df['Location'] == loc]
-
-            if not loc_paris.empty:
-                # Group by attribute to get real and ideal segment shares
-                attr_group = loc_paris.groupby(attribute).agg({
-                    'Real_So_Segment': 'sum',
-                    'Ideal_So_Segment': 'sum',
-                    'Delta_SoS': 'sum'
-                }).reset_index()
-
-                for _, row in attr_group.iterrows():
-                    attr_values.append(row[attribute])
-                    # Convert segment shares to percentages
-                    actual_vals.append(row['Real_So_Segment'] * 100)
-                    ideal_vals.append(row['Ideal_So_Segment'] * 100)
-                    gaps.append(row['Delta_SoS'] * 100)
-
-                    # Estimate PMI share (this might need to be improved with actual data)
-                    # For now, we'll use a placeholder estimate based on real share
-                    pmi_vals.append(row['Real_So_Segment'] * 100 * 0.8)  # Assuming PMI has 80% of real
-
-        # If we couldn't get the data from PARIS, try from comparison data
-        if not attr_values:
-            # Find rows for this location in the comparison data
-            for i, row in comp_df.iterrows():
-                if pd.notna(row[0]) and attribute in str(row[0]):
-                    # Found the attribute section, now get data for this location
-                    idx = i + 1
-                    while idx < len(comp_df) and pd.isna(comp_df.iloc[idx, 0]):
-                        row_data = comp_df.iloc[idx]
-                        attr_val = str(row_data.iloc[0]) if pd.notna(row_data.iloc[0]) else None
-
-                        if attr_val and attr_val.strip():
-                            # Get column indices for this location
-                            if loc == location1:
-                                col_offset = 1  # Columns for location1
-                            else:
-                                col_offset = 4  # Columns for location2
-
-                            # Extract values if available
-                            if col_offset < len(row_data):
-                                attr_values.append(attr_val)
-
-                                # Parse actual, ideal, and gap values
-                                actual = float(row_data.iloc[col_offset]) if pd.notna(row_data.iloc[col_offset]) else 0
-                                ideal = float(row_data.iloc[col_offset + 1]) if pd.notna(
-                                    row_data.iloc[col_offset + 1]) and col_offset + 1 < len(row_data) else 0
-                                gap = float(row_data.iloc[col_offset + 2]) if pd.notna(
-                                    row_data.iloc[col_offset + 2]) and col_offset + 2 < len(row_data) else 0
-
-                                actual_vals.append(actual)
-                                ideal_vals.append(ideal)
-                                gaps.append(gap)
-
-                                # Estimate PMI share if not directly available
-                                if col_offset + 3 < len(row_data) and pd.notna(row_data.iloc[col_offset + 3]):
-                                    pmi_vals.append(float(row_data.iloc[col_offset + 3]))
-                                else:
-                                    pmi_vals.append(actual * 0.8)  # Placeholder estimate
-
-                        idx += 1
-                    break
-
-        location_data[loc] = {
-            'values': attr_values,
-            'actual': actual_vals,
-            'ideal': ideal_vals,
-            'gaps': gaps,
-            'pmi': pmi_vals
+    # Load comparison data
+    comparison_files = {
+        'flavor': 'kuwait_jeju_attribute_analysis_Flavor_Distribution.csv',
+        'taste': 'kuwait_jeju_attribute_analysis_Taste_Distribution.csv',
+        'thickness': 'kuwait_jeju_attribute_analysis_Thickness_Distribution.csv',
+        'length': 'kuwait_jeju_attribute_analysis_Length_Distribution.csv',
+        'gaps': {
+            'kuwait': {
+                'flavor': 'kuwait_jeju_attribute_analysis_Kuwait_Flavor_Gaps.csv',
+                'taste': 'kuwait_jeju_attribute_analysis_Kuwait_Taste_Gaps.csv',
+                'thickness': 'kuwait_jeju_attribute_analysis_Kuwait_Thickness_Gaps.csv',
+                'length': 'kuwait_jeju_attribute_analysis_Kuwait_Length_Gaps.csv'
+            },
+            'jeju': {
+                'flavor': 'kuwait_jeju_attribute_analysis_Jeju_Flavor_Gaps.csv',
+                'taste': 'kuwait_jeju_attribute_analysis_Jeju_Taste_Gaps.csv',
+                'thickness': 'kuwait_jeju_attribute_analysis_Jeju_Thickness_Gaps.csv',
+                'length': 'kuwait_jeju_attribute_analysis_Jeju_Length_Gaps.csv'
+            }
         }
+    }
 
-    # Define a diverging colormap for gaps
-    cmap = plt.cm.RdYlGn  # Red-Yellow-Green colormap
+    # Load Kuwait data
+    for key, filename in kuwait_files.items():
+        filepath = os.path.join(data_dir, filename)
+        if os.path.exists(filepath):
+            data['kuwait'][key] = pd.read_csv(filepath)
 
-    # Create grid visualization for each location
-    for i, loc in enumerate(locations):
-        ax = axes[i]
-        ax.set_title(f"{loc} - {attribute} Distribution", fontsize=14)
-        ax.axis('off')
+    # Load Jeju data
+    for key, filename in jeju_files.items():
+        filepath = os.path.join(data_dir, filename)
+        if os.path.exists(filepath):
+            data['jeju'][key] = pd.read_csv(filepath)
 
-        if loc not in location_data or not location_data[loc]['values']:
-            ax.text(0.5, 0.5, f"No data for {loc} - {attribute}", ha='center', va='center', fontsize=14)
-            continue
+    # Load comparison data
+    data['comparison'] = {}
+    for key, filename in comparison_files.items():
+        if key != 'gaps':
+            filepath = os.path.join(data_dir, filename)
+            if os.path.exists(filepath):
+                data['comparison'][key] = pd.read_csv(filepath)
 
-        loc_values = location_data[loc]['values']
-        actual_vals = location_data[loc]['actual']
-        ideal_vals = location_data[loc]['ideal']
-        gaps = location_data[loc]['gaps']
-        pmi_vals = location_data[loc]['pmi']
+    # Load gap data
+    data['gaps'] = {'kuwait': {}, 'jeju': {}}
+    for location in ['kuwait', 'jeju']:
+        for key, filename in comparison_files['gaps'][location].items():
+            filepath = os.path.join(data_dir, filename)
+            if os.path.exists(filepath):
+                data['gaps'][location][key] = pd.read_csv(filepath)
 
-        # Calculate grid layout
-        n_values = len(loc_values)
-        grid_cols = min(3, n_values)
-        grid_rows = (n_values + grid_cols - 1) // grid_cols
+    # Load comparison summary
+    summary_file = os.path.join(data_dir, 'kuwait_jeju_comparison_summary.csv')
+    if os.path.exists(summary_file):
+        data['comparison_summary'] = pd.read_csv(summary_file)
 
-        # Calculate cell size and spacing
-        cell_width = 0.8 / grid_cols
-        cell_height = 0.8 / grid_rows
-        x_spacing = 0.05
-        y_spacing = 0.05
+    return data
 
-        # Create color-coded grid cells
-        for j, (value, actual, ideal, gap, pmi) in enumerate(zip(loc_values, actual_vals, ideal_vals, gaps, pmi_vals)):
-            row = j // grid_cols
-            col = j % grid_cols
 
-            # Calculate cell position
-            x = col * (cell_width + x_spacing) + 0.1
-            y = 1 - (row * (cell_height + y_spacing) + 0.1 + cell_height)
-
-            # Normalize gap for color mapping (-100 to 100 scale)
-            norm_gap = min(1, max(0, (gap + 30) / 60))  # Center around 0 with +/-30% range
-            color = cmap(norm_gap)
-
-            # Create cell rectangle
-            rect = plt.Rectangle((x, y), cell_width, cell_height,
-                                 facecolor=color, alpha=0.8,
-                                 transform=ax.transAxes)
-            ax.add_patch(rect)
-
-            # Add text for attribute value and metrics
-            ax.text(x + cell_width / 2, y + cell_height * 0.85, value,
-                    ha='center', va='center', transform=ax.transAxes,
-                    fontsize=10, fontweight='bold')
-
-            ax.text(x + cell_width / 2, y + cell_height * 0.65, f"Market: {actual:.1f}%",
-                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
-
-            ax.text(x + cell_width / 2, y + cell_height * 0.5, f"PMI: {pmi:.1f}%",
-                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
-
-            ax.text(x + cell_width / 2, y + cell_height * 0.35, f"Ideal: {ideal:.1f}%",
-                    ha='center', va='center', transform=ax.transAxes, fontsize=9)
-
-            # Add gap text with appropriate color
-            gap_text = f"Gap: {gap:.1f}%"
-            gap_color = 'red' if gap < -5 else ('green' if gap > 5 else 'black')
-            ax.text(x + cell_width / 2, y + cell_height * 0.15, gap_text,
-                    ha='center', va='center', transform=ax.transAxes,
-                    fontsize=9, color=gap_color, fontweight='bold')
-
-        # Calculate alignment score
-        alignment_score = 10 - min(10, sum(abs(g) for g in gaps) / 10)
-        ax.text(0.02, 0.97, f"Alignment Score: {alignment_score:.1f}/10",
-                transform=ax.transAxes, fontsize=11, fontweight='bold',
-                bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
-
-    # Add a colorbar for reference
-    sm = plt.cm.ScalarMappable(cmap=cmap)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=axes, orientation='horizontal', pad=0.05, aspect=40)
-    cbar.set_label('Gap: Underrepresented (Green) vs. Overrepresented (Red)')
-
-    # Add market share information if available
-    market_shares = get_market_shares(comp_df)
-    if market_shares:
-        for i, loc in enumerate(locations):
-            if loc in market_shares:
-                share = market_shares[loc]
-                axes[i].text(0.02, 0.02, f"Market Share: {share:.1f}%",
-                             transform=axes[i].transAxes, fontsize=11, fontweight='bold',
-                             bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
-
-    plt.tight_layout()
-    plt.suptitle(f"Portfolio Alignment Analysis: {attribute}", fontsize=16, y=1.05)
-    return fig
-
-def get_market_shares(comp_df):
-    """Extract market share information from comparison data if available."""
-    market_shares = {}
-
-    # Default market shares based on project data
-    market_shares['Kuwait'] = 75.0
-    market_shares['Jeju'] = 11.4
-
-    # Look for market share data in the comparison file
-    for i, row in comp_df.iterrows():
-        if pd.notna(row[0]) and 'Market Share' in str(row[0]):
-            # Next rows might contain location-specific shares
-            for j in range(i + 1, min(i + 5, len(comp_df))):
-                if pd.notna(comp_df.iloc[j, 0]):
-                    loc = comp_df.iloc[j, 0]
-                    # Try to find share value in one of the numeric columns
-                    for col in range(1, min(10, len(comp_df.columns))):
-                        val = comp_df.iloc[j, col]
-                        if pd.notna(val) and isinstance(val, (int, float)) and 0 <= val <= 100:
-                            market_shares[loc] = val
-                            break
-
-    return market_shares
-
-def create_attribute_heatmap(attr_df, location, attribute):
+def create_attribute_matrix(location_data, attribute, location, pmi_only=False):
     """
-    Create a heatmap visualization for a specific attribute.
+    Create a matrix of product counts for a given attribute by TMO
 
     Args:
-        attr_df (DataFrame): Attribute analysis data
-        location (str): Location to visualize
-        attribute (str): Attribute to visualize (Flavor, Taste, Thickness, Length)
+        location_data (dict): Dictionary containing location data
+        attribute (str): Attribute to analyze (flavor, taste, thickness, length)
+        location (str): Location to analyze (kuwait or jeju)
+        pmi_only (bool): Whether to include only PMI products
 
     Returns:
-        matplotlib.figure.Figure: The figure containing the heatmap
+        tuple: (matrix, row_labels, col_labels) for heatmap visualization
     """
-    # Extract relevant columns based on attribute
-    cols = [col for col in attr_df.columns if attribute in col and ('Actual' in col or 'Ideal' in col or 'Gap' in col)]
+    # Get product data
+    if pmi_only:
+        products_df = location_data[location]['products']
+    else:
+        products_df = location_data[location]['top_products']
 
-    if not cols:
-        print(f"No data found for {attribute} in {location}")
-        return None
+    # Get attribute values
+    attribute_df = location_data[location][attribute]
 
-    # Extract attribute values (rows)
-    attr_values = []
-    actual_vals = []
-    ideal_vals = []
-    gaps = []
+    # Create attribute matrix
+    attribute_values = attribute_df[attribute].unique()
 
-    # Find the section for this attribute
-    found_section = False
-    for i in range(len(attr_df)):
-        if pd.notna(attr_df.iloc[i, 0]) and attribute in str(attr_df.iloc[i, 0]):
-            found_section = True
-            continue
+    if pmi_only:
+        # PMI only matrix
+        matrix = np.zeros(len(attribute_values))
 
-        if found_section:
-            # Stop when we hit another attribute section
-            if pd.notna(attr_df.iloc[i, 0]) and any(
-                    attr in str(attr_df.iloc[i, 0]) for attr in ['Flavor', 'Taste', 'Thickness', 'Length']):
+        for i, attr_val in enumerate(attribute_values):
+            count = len(products_df[products_df[attribute] == attr_val])
+            matrix[i] = count
+
+        return matrix, attribute_values, ['PMI']
+    else:
+        # TMO comparison matrix
+        tmos = products_df['TMO'].unique()
+        matrix = np.zeros((len(attribute_values), len(tmos)))
+
+        for i, attr_val in enumerate(attribute_values):
+            for j, tmo in enumerate(tmos):
+                count = len(products_df[(products_df[attribute] == attr_val) &
+                                        (products_df['TMO'] == tmo)])
+                matrix[i, j] = count
+
+        return matrix, attribute_values, tmos
+
+
+def create_attribute_gap_matrix(location_data, attribute, location):
+    """
+    Create a matrix of gaps between actual and ideal distribution for an attribute
+
+    Args:
+        location_data (dict): Dictionary containing location data
+        attribute (str): Attribute to analyze (flavor, taste, thickness, length)
+        location (str): Location to analyze (kuwait or jeju)
+
+    Returns:
+        numpy.ndarray: Matrix of gaps
+    """
+    # Get gap data
+    if location in location_data['gaps'] and attribute in location_data['gaps'][location]:
+        gap_df = location_data['gaps'][location][attribute]
+    else:
+        # Fallback to attribute distribution data
+        gap_df = location_data[location][attribute]
+
+    # Extract gaps
+    if 'Gap' in gap_df.columns:
+        gaps = gap_df['Gap'].values
+    elif 'Market_vs_Ideal_Gap' in gap_df.columns:
+        gaps = gap_df['Market_vs_Ideal_Gap'].values
+    else:
+        # Compute gaps
+        gaps = gap_df['Actual'].values - gap_df['Ideal'].values
+
+    return gaps
+
+
+def get_attribute_column(df, attribute):
+    """
+    Helper function to find the correct column name for an attribute
+    """
+    if attribute in df.columns:
+        return attribute
+
+    # Try capitalized version
+    capitalized = attribute.capitalize()
+    if capitalized in df.columns:
+        return capitalized
+
+    # Try other variations
+    possible_columns = ['Category', 'Type', 'Name', 'Value']
+    for col in possible_columns:
+        if col in df.columns:
+            return col
+
+    # Return original as fallback
+    return attribute
+
+
+def create_attribute_grid(location_data, primary_attr, secondary_attr, location):
+    """
+    Create a grid visualization showing the distribution of products across two attributes
+    """
+    # Get product data
+    products_df = location_data[location]['top_products']
+
+    # Get attribute dataframes
+    primary_df = location_data[location][primary_attr]
+    secondary_df = location_data[location][secondary_attr]
+
+    # Find correct column names
+    primary_col = get_attribute_column(primary_df, primary_attr)
+    secondary_col = get_attribute_column(secondary_df, secondary_attr)
+
+    # Get attribute values
+    primary_values = primary_df[primary_col].unique()
+    secondary_values = secondary_df[secondary_col].unique()
+
+    # Get correct column names in products dataframe
+    products_primary_col = get_attribute_column(products_df, primary_attr)
+    products_secondary_col = get_attribute_column(products_df, secondary_attr)
+
+    # Create grid
+    grid = np.zeros((len(primary_values), len(secondary_values)))
+
+    # Fill grid with product counts
+    for i, p_val in enumerate(primary_values):
+        for j, s_val in enumerate(secondary_values):
+            count = len(products_df[(products_df[products_primary_col] == p_val) &
+                                    (products_df[products_secondary_col] == s_val)])
+            grid[i, j] = count
+
+    return grid, primary_values, secondary_values
+
+
+def create_ideal_distribution_grid(location_data, primary_attr, secondary_attr, location):
+    """
+    Create a grid visualization showing the ideal distribution of products across two attributes
+
+    Args:
+        location_data (dict): Dictionary containing location data
+        primary_attr (str): Primary attribute for rows
+        secondary_attr (str): Secondary attribute for columns
+        location (str): Location to analyze (kuwait or jeju)
+
+    Returns:
+        tuple: (matrix, row_labels, col_labels) for heatmap visualization
+    """
+    # Get attribute data
+    primary_df = location_data[location][primary_attr]
+    secondary_df = location_data[location][secondary_attr]
+
+    # Find correct column names
+    primary_col = get_attribute_column(primary_df, primary_attr)
+    secondary_col = get_attribute_column(secondary_df, secondary_attr)
+
+    # Get attribute values
+    primary_values = primary_df[primary_col].unique()
+    secondary_values = secondary_df[secondary_col].unique()
+
+    # Create grid for ideal distribution
+    grid = np.zeros((len(primary_values), len(secondary_values)))
+
+    # This is a simplification - in reality this would need to be derived from passenger preference data
+    # For now, we'll use a proportional distribution based on individual ideal percentages
+    if 'Ideal_Percentage' in primary_df.columns and 'Ideal_Percentage' in secondary_df.columns:
+        primary_ideal = primary_df.set_index(primary_col)['Ideal_Percentage'].to_dict()
+        secondary_ideal = secondary_df.set_index(secondary_col)['Ideal_Percentage'].to_dict()
+
+        for i, p_val in enumerate(primary_values):
+            for j, s_val in enumerate(secondary_values):
+                # Joint probability - simplified assumption of independence
+                grid[i, j] = (primary_ideal.get(p_val, 0) * secondary_ideal.get(s_val, 0)) / 100
+
+    return grid, primary_values, secondary_values
+
+
+def create_gap_grid(actual_grid, ideal_grid):
+    """
+    Create a grid showing the gap between actual and ideal distribution
+
+    Args:
+        actual_grid (numpy.ndarray): Matrix of actual distribution
+        ideal_grid (numpy.ndarray): Matrix of ideal distribution
+
+    Returns:
+        numpy.ndarray: Matrix of gaps
+    """
+    # Normalize grids for comparison if they have different scales
+    if actual_grid.sum() > 0:
+        actual_normalized = actual_grid / actual_grid.sum() * 100
+    else:
+        actual_normalized = actual_grid
+
+    if ideal_grid.sum() > 0:
+        ideal_normalized = ideal_grid / ideal_grid.sum() * 100
+    else:
+        ideal_normalized = ideal_grid
+
+    # Calculate gaps
+    gap_grid = actual_normalized - ideal_normalized
+
+    return gap_grid
+
+
+def plot_attribute_distribution(location_data, attribute, fig, ax, location, title=None):
+    """
+    Plot attribute distribution showing actual vs ideal percentages
+
+    Args:
+        location_data (dict): Dictionary containing location data
+        attribute (str): Attribute to plot
+        fig (matplotlib.figure.Figure): Figure to plot on
+        ax (matplotlib.axes.Axes): Axes to plot on
+        location (str): Location to analyze (kuwait or jeju)
+        title (str, optional): Custom title
+    """
+    # Get attribute data
+    attr_df = location_data[location][attribute]
+
+    # Print debug info to check structure
+    print(f"Columns available in {location}_{attribute}: {attr_df.columns.tolist()}")
+
+    # Extract data - look for likely category column names
+    category_column = attribute
+    if attribute not in attr_df.columns:
+        # Try to find a column that might contain categories
+        possible_columns = ['Category', 'Type', attribute.capitalize(), 'Name', 'Value']
+        for col in possible_columns:
+            if col in attr_df.columns:
+                category_column = col
                 break
 
-            # Extract values
-            row = attr_df.iloc[i]
-            if pd.notna(row.iloc[0]) and row.iloc[0].strip():
-                attr_values.append(row.iloc[0])
-
-                # Find actual, ideal, and gap values based on column names
-                actual_col = next((col for col in cols if 'Actual' in col), None)
-                ideal_col = next((col for col in cols if 'Ideal' in col), None)
-                gap_col = next((col for col in cols if 'Gap' in col), None)
-
-                actual_idx = attr_df.columns.get_loc(actual_col) if actual_col else -1
-                ideal_idx = attr_df.columns.get_loc(ideal_col) if ideal_col else -1
-                gap_idx = attr_df.columns.get_loc(gap_col) if gap_col else -1
-
-                actual_vals.append(
-                    float(row.iloc[actual_idx]) if actual_idx >= 0 and pd.notna(row.iloc[actual_idx]) else 0)
-                ideal_vals.append(float(row.iloc[ideal_idx]) if ideal_idx >= 0 and pd.notna(row.iloc[ideal_idx]) else 0)
-                gaps.append(float(row.iloc[gap_idx]) if gap_idx >= 0 and pd.notna(row.iloc[gap_idx]) else 0)
-
-    if not attr_values:
-        print(f"No values found for {attribute} in {location}")
-        return None
-
-    # Create figure
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), gridspec_kw={'width_ratios': [1, 1, 1.2]})
-
-    # Create data for heatmaps
-    heatmap_data = {
-        'Actual': pd.DataFrame({'Values': actual_vals}, index=attr_values),
-        'Ideal': pd.DataFrame({'Values': ideal_vals}, index=attr_values),
-        'Gap': pd.DataFrame({'Values': gaps}, index=attr_values)
-    }
-
-    # Define colormaps
-    cmap_actual = 'Blues'
-    cmap_ideal = 'Greens'
-    cmap_gap = 'RdYlGn'  # Red-Yellow-Green
-
-    titles = ['Actual Distribution (%)', 'Ideal Distribution (%)', 'Gap (Ideal - Actual)']
-    cmaps = [cmap_actual, cmap_ideal, cmap_gap]
-
-    # Create heatmaps
-    for i, (title, cmap) in enumerate(zip(titles, cmaps)):
-        key = title.split()[0]
-        data = heatmap_data[key]
-
-        # Determine center for diverging colormap
-        center = 0 if key == 'Gap' else None
-
-        # Create heatmap
-        sns.heatmap(data, annot=True, fmt='.1f', cmap=cmap,
-                    ax=axes[i], cbar=True, center=center,
-                    linewidths=0.5, linecolor='white')
-
-        axes[i].set_title(f"{location} - {title}")
-        axes[i].set_ylabel(attribute)
-        axes[i].set_xlabel('')
-
-        # Rotate y-axis labels for better readability
-        axes[i].set_yticklabels(axes[i].get_yticklabels(), rotation=0)
-
-    plt.tight_layout()
-    plt.suptitle(f"{location} - {attribute} Distribution Analysis", fontsize=14, y=1.05)
-    return fig
-
-def create_portfolio_alignment_visualization(kw_attr_df, jj_attr_df, attributes=None):
-    """
-    Create a comprehensive portfolio alignment visualization comparing Kuwait and Jeju.
-
-    Args:
-        kw_attr_df (DataFrame): Kuwait attribute analysis data
-        jj_attr_df (DataFrame): Jeju attribute analysis data
-        attributes (list, optional): List of attributes to include, defaults to all
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the visualization
-    """
-    if attributes is None:
-        attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-
-    # Create figure with subplots
-    fig, axes = plt.subplots(len(attributes), 2, figsize=(16, 4 * len(attributes)))
-
-    # Handle single attribute case
-    if len(attributes) == 1:
-        axes = axes.reshape(1, 2)
-
-    # Define color maps
-    cmap_actual = plt.cm.Blues
-    cmap_ideal = plt.cm.Greens
-
-    # Process each attribute
-    for i, attribute in enumerate(attributes):
-        for j, (attr_df, location) in enumerate([(kw_attr_df, 'Kuwait'), (jj_attr_df, 'Jeju')]):
-            # Extract data for this attribute
-            attr_values = []
-            actual_vals = []
-            ideal_vals = []
-            gaps = []
-
-            # Find the section for this attribute
-            found_section = False
-            for row_idx in range(len(attr_df)):
-                if pd.notna(attr_df.iloc[row_idx, 0]) and attribute in str(attr_df.iloc[row_idx, 0]):
-                    found_section = True
-                    continue
-
-                if found_section:
-                    # Stop when we hit another attribute section
-                    if pd.notna(attr_df.iloc[row_idx, 0]) and any(attr in str(attr_df.iloc[row_idx, 0]) for attr in
-                                                                  ['Flavor', 'Taste', 'Thickness', 'Length']):
-                        break
-
-                    # Extract values
-                    row = attr_df.iloc[row_idx]
-                    if pd.notna(row.iloc[0]) and str(row.iloc[0]).strip():
-                        # Find columns with actual, ideal values
-                        actual_col = 1  # Assuming fixed positions based on observed patterns
-                        ideal_col = 2
-
-                        if pd.notna(row.iloc[actual_col]) and pd.notna(row.iloc[ideal_col]):
-                            attr_values.append(str(row.iloc[0]))
-                            actual_vals.append(float(row.iloc[actual_col]))
-                            ideal_vals.append(float(row.iloc[ideal_col]))
-                            gaps.append(float(row.iloc[ideal_col]) - float(row.iloc[actual_col]))
-
-            if not attr_values:
-                print(f"No values found for {attribute} in {location}")
-                continue
-
-            ax = axes[i, j]
-
-            # Create bar chart
-            x = np.arange(len(attr_values))
-            width = 0.35
-
-            # Sort data by ideal values for better visualization
-            if ideal_vals:
-                sorted_indices = np.argsort(ideal_vals)[::-1]  # Sort by ideal values (descending)
-                attr_values = [attr_values[idx] for idx in sorted_indices]
-                actual_vals = [actual_vals[idx] for idx in sorted_indices]
-                ideal_vals = [ideal_vals[idx] for idx in sorted_indices]
-                gaps = [gaps[idx] for idx in sorted_indices]
-
-            # Plot actual distribution
-            actual_bars = ax.bar(x - width / 2, actual_vals, width, label='Actual', color=cmap_actual(0.6))
-
-            # Plot ideal distribution
-            ideal_bars = ax.bar(x + width / 2, ideal_vals, width, label='Ideal', color=cmap_ideal(0.6))
-
-            # Add gap indicators
-            for idx, (actual, ideal, gap) in enumerate(zip(actual_vals, ideal_vals, gaps)):
-                # Determine color based on gap
-                color = 'green' if gap > 0 else 'red'
-
-                # Add arrow or connector to show gap
-                if abs(gap) > 5:  # Only show significant gaps
-                    y_pos = max(actual, ideal) + 2
-                    ax.annotate(f"{gap:.1f}", xy=(idx, y_pos), xytext=(idx, y_pos + 5),
-                                arrowprops=dict(arrowstyle='->', color=color, lw=1.5),
-                                ha='center', va='bottom', color=color, fontweight='bold')
-
-            # Set title and labels
-            ax.set_title(f"{location} - {attribute} Distribution", fontsize=12)
-            ax.set_ylabel('Percentage (%)')
-            ax.set_xticks(x)
-            ax.set_xticklabels(attr_values, rotation=45, ha='right')
-            ax.legend()
-
-            # Add alignment score based on absolute gaps
-            alignment_score = 10 - min(10, sum(abs(g) for g in gaps) / 10)
-            ax.text(0.02, 0.98, f"Alignment Score: {alignment_score:.1f}/10",
-                    transform=ax.transAxes, fontsize=10, fontweight='bold',
-                    va='top', ha='left',
-                    bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.5'))
-
-    plt.tight_layout()
-    plt.suptitle("Portfolio Alignment Analysis: Kuwait vs. Jeju", fontsize=16, y=1.02)
-    return fig
-
-def create_product_shelf_visualization(kw_df, jj_df, attribute1='Thickness', attribute2='Length'):
-    """
-    Create a visual representation of product "shelf" showing distribution across two attributes.
-
-    Args:
-        kw_df (DataFrame): Kuwait product data
-        jj_df (DataFrame): Jeju product data
-        attribute1 (str): First attribute for categorization (x-axis)
-        attribute2 (str): Second attribute for categorization (y-axis)
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the shelf visualization
-    """
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 1, figsize=(14, 16))
-
-    # Define color scheme
-    pmi_color = 'darkblue'
-    comp_color = 'gray'
-    pmi_cmap = plt.cm.Blues
-    comp_cmap = plt.cm.Greys
-
-    # Process each dataset
-    for idx, (df, location, ax) in enumerate([(kw_df, 'Kuwait', axes[0]), (jj_df, 'Jeju', axes[1])]):
-        # Check if required attributes exist
-        if attribute1 not in df.columns or attribute2 not in df.columns:
-            print(f"Required attributes not found in {location} data. Available columns: {df.columns.tolist()}")
-            ax.text(0.5, 0.5, f"Missing attribute data for {location}", ha='center', va='center', fontsize=14)
-            continue
-
-        # Get unique values for each attribute
-        attr1_values = sorted(df[attribute1].unique())
-        attr2_values = sorted(df[attribute2].unique())
-
-        # Create a grid for visualization
-        grid_shape = (len(attr2_values), len(attr1_values))
-        grid = np.zeros(grid_shape)
-        pmi_grid = np.zeros(grid_shape)
-        comp_grid = np.zeros(grid_shape)
-
-        # Fill the grid with product counts and volumes
-        for a1_idx, a1_val in enumerate(attr1_values):
-            for a2_idx, a2_val in enumerate(attr2_values):
-                # Filter data for this attribute combination
-                mask = (df[attribute1] == a1_val) & (df[attribute2] == a2_val)
-                products = df[mask]
-
-                if not products.empty:
-                    # Count PMI and competitor products
-                    pmi_products = products[products['TMO'] == 'PMI']
-                    comp_products = products[products['TMO'] != 'PMI']
-
-                    # Update grids with volumes (using log scale for better visualization)
-                    volume_col = 'DF_Vol' if 'DF_Vol' in products.columns else '$current_year Volume'
-
-                    if volume_col in products.columns:
-                        grid[a2_idx, a1_idx] = np.log1p(products[volume_col].sum())
-                        if not pmi_products.empty:
-                            pmi_grid[a2_idx, a1_idx] = np.log1p(pmi_products[volume_col].sum())
-                        if not comp_products.empty:
-                            comp_grid[a2_idx, a1_idx] = np.log1p(comp_products[volume_col].sum())
-                    else:
-                        # If no volume column, just use counts
-                        grid[a2_idx, a1_idx] = len(products)
-                        pmi_grid[a2_idx, a1_idx] = len(pmi_products)
-                        comp_grid[a2_idx, a1_idx] = len(comp_products)
-
-        # Create heatmap base
-        im = ax.imshow(grid, cmap='YlOrBr', alpha=0.3)
-
-        # Add grid lines
-        for i in range(grid_shape[1] + 1):
-            ax.axvline(i - 0.5, color='black', linestyle='-', linewidth=0.5)
-        for i in range(grid_shape[0] + 1):
-            ax.axhline(i - 0.5, color='black', linestyle='-', linewidth=0.5)
-
-        # Add product indicators
-        for a1_idx, a1_val in enumerate(attr1_values):
-            for a2_idx, a2_val in enumerate(attr2_values):
-                # Filter data for this attribute combination
-                mask = (df[attribute1] == a1_val) & (df[attribute2] == a2_val)
-                products = df[mask]
-
-                if not products.empty:
-                    # Get PMI and competitor products
-                    pmi_products = products[products['TMO'] == 'PMI']
-                    comp_products = products[products['TMO'] != 'PMI']
-
-                    # Get total volume in this cell
-                    volume_col = 'DF_Vol' if 'DF_Vol' in products.columns else '$current_year Volume'
-
-                    if volume_col in products.columns:
-                        total_vol = products[volume_col].sum()
-                        pmi_vol = pmi_products[volume_col].sum() if not pmi_products.empty else 0
-                        comp_vol = comp_products[volume_col].sum() if not comp_products.empty else 0
-                    else:
-                        # If no volume column, use counts
-                        total_vol = len(products)
-                        pmi_vol = len(pmi_products)
-                        comp_vol = len(comp_products)
-
-                    # Add PMI indicator (circles)
-                    if not pmi_products.empty:
-                        # Scale size by volume proportion
-                        size = 2000 * (pmi_vol / total_vol) if total_vol > 0 else 0
-                        ax.scatter(a1_idx, a2_idx, s=size, color=pmi_color, alpha=0.7,
-                                   label='PMI' if a1_idx == 0 and a2_idx == 0 else "")
-
-                    # Add competitor indicator (squares)
-                    if not comp_products.empty:
-                        # Scale size by volume proportion
-                        size = 2000 * (comp_vol / total_vol) if total_vol > 0 else 0
-                        ax.scatter(a1_idx, a2_idx, s=size, marker='s', color=comp_color, alpha=0.7,
-                                   label='Competitor' if a1_idx == 0 and a2_idx == 0 else "")
-
-                    # Add text for product count
-                    ax.text(a1_idx, a2_idx, f"{len(products)}", ha='center', va='center',
-                            color='black', fontsize=9, fontweight='bold')
-
-        # Set title and labels
-        ax.set_title(f"{location} - Product Distribution by {attribute1} and {attribute2}", fontsize=14)
-        ax.set_xticks(range(len(attr1_values)))
-        ax.set_xticklabels(attr1_values, rotation=45, ha='right')
-        ax.set_yticks(range(len(attr2_values)))
-        ax.set_yticklabels(attr2_values)
-        ax.set_xlabel(attribute1)
-        ax.set_ylabel(attribute2)
-
-        # Add a legend
-        handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys(), loc='upper right')
-
-    plt.tight_layout()
-    return fig
-
-def create_radar_chart(alignment_results, locations=['Kuwait', 'Jeju']):
-    """
-    Create a radar chart comparing attribute alignment scores across locations.
-
-    Args:
-        alignment_results (dict): Attribute alignment results
-        locations (list): Locations to compare
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the radar chart
-    """
-    # Define attributes
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-
-    # Extract alignment scores for each location and attribute
-    loc_scores = {}
-    for loc in locations:
-        if loc in alignment_results:
-            scores = []
-            for attr in attributes:
-                if attr in alignment_results[loc]:
-                    scores.append(alignment_results[loc][attr]['alignment_score'])
-                else:
-                    scores.append(0)
-            loc_scores[loc] = scores
-
-    # Create radar chart
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, polar=True)
-
-    # Plot each location
-    angles = np.linspace(0, 2 * np.pi, len(attributes), endpoint=False).tolist()
-    angles += angles[:1]  # Close the loop
-
-    colors = {'Kuwait': 'green', 'Jeju': 'red'}
-
-    for loc, scores in loc_scores.items():
-        values = scores.copy()
-        values += values[:1]  # Close the loop
-
-        ax.plot(angles, values, 'o-', linewidth=2, label=loc, color=colors.get(loc, 'blue'))
-        ax.fill(angles, values, alpha=0.25, color=colors.get(loc, 'blue'))
-
-    # Set chart properties
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(attributes)
-    ax.set_yticks([2, 4, 6, 8, 10])
-    ax.set_ylim(0, 10)
-    ax.grid(True)
+    # Extract values
+    x = attr_df[category_column].values
+
+    # Check for columns
+    if 'Volume_Percentage' in attr_df.columns and 'Ideal_Percentage' in attr_df.columns:
+        actual = attr_df['Volume_Percentage'].values
+        ideal = attr_df['Ideal_Percentage'].values
+        pmi = attr_df['PMI_Volume_Percentage'].values if 'PMI_Volume_Percentage' in attr_df.columns else None
+    elif 'Actual' in attr_df.columns and 'Ideal' in attr_df.columns:
+        actual = attr_df['Actual'].values
+        ideal = attr_df['Ideal'].values
+        pmi = None
+    else:
+        return
+
+    # Set width for bars
+    width = 0.3
+    x_pos = np.arange(len(x))
+
+    # Plot ideal distribution
+    ax.bar(x_pos - width, ideal, width, color='green', alpha=0.7, label='Ideal')
+
+    # Plot actual distribution
+    ax.bar(x_pos, actual, width, color='blue', alpha=0.7, label='Market')
+
+    # Plot PMI distribution if available
+    if pmi is not None:
+        ax.bar(x_pos + width, pmi, width, color='red', alpha=0.7, label='PMI')
+
+    # Calculate and add gap annotations
+    for i, (a, b, label) in enumerate(zip(actual, ideal, x)):
+        gap = a - b
+        color = 'red' if gap < -5 else ('green' if gap > 5 else 'black')
+        ax.annotate(f"{gap:.1f}",
+                    xy=(i, max(a, b) + 1),
+                    ha='center', va='bottom',
+                    color=color, fontweight='bold')
+
+    # Add labels
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(x, rotation=45, ha='right')
+    ax.set_ylabel('Percentage (%)')
+
+    # Add title
+    if title:
+        ax.set_title(title)
+    else:
+        ax.set_title(f"{location.capitalize()} - {attribute} Distribution")
 
     # Add legend
-    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+    ax.legend()
 
-    plt.title("Attribute Alignment by Location", fontsize=15)
-    return fig
+    # Add grid
+    ax.grid(axis='y', linestyle='--', alpha=0.3)
 
-def create_comparison_dashboard(id_act_data, location1='Kuwait', location2='Jeju'):
+
+def plot_portfolio_grid(location_data, primary_attr, secondary_attr, location, fig, ax, title=None):
     """
-    Create a dashboard comparing ideal vs. actual distribution for all attributes.
+    Plot a heatmap grid showing product distribution across two attributes
 
     Args:
-        id_act_data (dict): Dictionary of ideal vs. actual data for each attribute
-        location1 (str): First location
-        location2 (str): Second location
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the comparison dashboard
+        location_data (dict): Dictionary containing location data
+        primary_attr (str): Primary attribute for y-axis
+        secondary_attr (str): Secondary attribute for x-axis
+        location (str): Location to analyze (kuwait or jeju)
+        fig (matplotlib.figure.Figure): Figure to plot on
+        ax (matplotlib.axes.Axes): Axes to plot on
+        title (str, optional): Custom title
     """
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
+    # Get actual distribution grid
+    actual_grid, primary_values, secondary_values = create_attribute_grid(
+        location_data, primary_attr, secondary_attr, location)
 
-    # Create a figure with a grid of subplots
-    fig, axes = plt.subplots(len(attributes), 2, figsize=(16, 4 * len(attributes)))
+    # Get ideal distribution grid
+    ideal_grid, _, _ = create_ideal_distribution_grid(
+        location_data, primary_attr, secondary_attr, location)
 
-    # Process each attribute
-    for i, attr in enumerate(attributes):
-        if attr not in id_act_data:
-            continue
+    # Calculate gap grid
+    gap_grid = create_gap_grid(actual_grid, ideal_grid)
 
-        df = id_act_data[attr]
+    # Create custom colormap - blue for negative gaps, red for positive gaps
+    colors = ["blue", "white", "red"]
+    cmap = LinearSegmentedColormap.from_list("custom_diverging", colors, N=256)
 
-        # Process for each location
-        for j, loc in enumerate([location1, location2]):
-            ax = axes[i, j]
+    # Plot heatmap
+    im = ax.imshow(gap_grid, cmap=cmap, vmin=-20, vmax=20)
 
-            # Extract data for this location
-            loc_cols = [col for col in df.columns if loc in col]
-            if not loc_cols:
-                ax.text(0.5, 0.5, f"No data for {loc}", ha='center', va='center', fontsize=12)
-                continue
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=ax, label='Gap (Actual - Ideal %)')
 
-            # Find columns for actual and ideal distributions
-            actual_col = next((col for col in loc_cols if 'Actual' in col), None)
-            ideal_col = next((col for col in loc_cols if 'Ideal' in col), None)
+    # Add value annotations
+    for i in range(len(primary_values)):
+        for j in range(len(secondary_values)):
+            text = ax.text(j, i, f"{gap_grid[i, j]:.1f}\n({actual_grid[i, j]:.0f})",
+                           ha="center", va="center", color="black",
+                           fontsize=8, fontweight="bold",
+                           bbox=dict(facecolor='white', edgecolor='none', alpha=0.5, pad=1))
 
-            if not actual_col or not ideal_col:
-                ax.text(0.5, 0.5, f"Missing actual/ideal data for {loc}", ha='center', va='center', fontsize=12)
-                continue
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(secondary_values)))
+    ax.set_yticks(np.arange(len(primary_values)))
+    ax.set_xticklabels(secondary_values)
+    ax.set_yticklabels(primary_values)
 
-            # Extract values
-            attr_values = df.iloc[:, 0].tolist()
-            actual_vals = df[actual_col].tolist()
-            ideal_vals = df[ideal_col].tolist()
+    # Rotate x-axis labels
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
 
-            # Calculate sorting index based on ideal values
-            sort_idx = np.argsort(ideal_vals)[::-1]
-            attr_values = [attr_values[i] for i in sort_idx]
-            actual_vals = [actual_vals[i] for i in sort_idx]
-            ideal_vals = [ideal_vals[i] for i in sort_idx]
+    # Add title
+    if title:
+        ax.set_title(title)
+    else:
+        ax.set_title(f"{location.capitalize()} - {primary_attr} vs {secondary_attr} Portfolio")
 
-            # Plot bars
-            x = np.arange(len(attr_values))
-            width = 0.35
+    # Add axis labels
+    ax.set_xlabel(secondary_attr)
+    ax.set_ylabel(primary_attr)
 
-            ax.bar(x - width / 2, actual_vals, width, label='Actual', color='blue')
-            ax.bar(x + width / 2, ideal_vals, width, label='Ideal', color='green')
 
-            # Add labels and title
-            ax.set_title(f"{loc} - {attr} Distribution", fontsize=12)
-            ax.set_ylabel('Percentage (%)')
-            ax.set_xticks(x)
-            ax.set_xticklabels(attr_values, rotation=45, ha='right')
-            ax.legend()
-
-            # Calculate and display alignment score
-            gaps = [abs(a - i) for a, i in zip(actual_vals, ideal_vals)]
-            alignment_score = 10 - min(10, sum(gaps) / 10)
-            ax.text(0.02, 0.98, f"Alignment Score: {alignment_score:.1f}/10",
-                    transform=ax.transAxes, fontsize=10, fontweight='bold',
-                    va='top', ha='left',
-                    bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
-
-    plt.tight_layout()
-    plt.suptitle("Ideal vs. Actual Distribution Comparison", fontsize=16, y=1.02)
-    return fig
-
-def create_shelf_visualization(attribute_data, attribute, location1='Kuwait', location2='Jeju'):
+def create_portfolio_visualization(data_dir, output_dir=None):
     """
-    Create a shelf-style visualization for a specific attribute as requested by Ed.
+    Create visualization for portfolio optimization
 
     Args:
-        attribute_data (dict): Dictionary with attribute distribution data
-        attribute (str): Attribute to visualize
-        location1 (str): First location (well-aligned, e.g., Kuwait)
-        location2 (str): Second location (misaligned, e.g., Jeju)
-
-    Returns:
-        matplotlib.figure.Figure: The figure containing the shelf visualization
+        data_dir (str): Path to data directory
+        output_dir (str, optional): Path to save output visualizations
     """
-    # Create figure with two side-by-side subplots
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-
-    # Process each location
-    for i, loc in enumerate([location1, location2]):
-        if loc not in attribute_data or attribute not in attribute_data[loc]:
-            print(f"No data for {loc} - {attribute}")
-            axes[i].text(0.5, 0.5, f"No data for {loc} - {attribute}",
-                         ha='center', va='center', fontsize=14)
-            continue
-
-        # Get attribute distribution data
-        attr_data = attribute_data[loc][attribute]
-        attr_values = attr_data['values']
-        market_pct = attr_data['market_pct']
-        pmi_pct = attr_data['pmi_pct']
-        ideal_pct = attr_data['ideal_pct']
-        gaps = attr_data['gaps']
-
-        # Sort by ideal percentage (descending)
-        sort_idx = np.argsort(ideal_pct)[::-1]
-        attr_values = [attr_values[i] for i in sort_idx]
-        market_pct = [market_pct[i] for i in sort_idx]
-        pmi_pct = [pmi_pct[i] for i in sort_idx]
-        ideal_pct = [ideal_pct[i] for i in sort_idx]
-        gaps = [gaps[i] for i in sort_idx]
-
-        # Calculate grid layout
-        n_values = len(attr_values)
-        grid_cols = min(3, n_values)
-        grid_rows = (n_values + grid_cols - 1) // grid_cols
-
-        # Set up the grid
-        ax = axes[i]
-        ax.set_xlim(0, grid_cols)
-        ax.set_ylim(0, grid_rows)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title(f"{loc} - {attribute} Distribution", fontsize=14)
-
-        # Create colormap for gap visualization
-        cmap = plt.cm.RdYlGn  # Red-Yellow-Green for showing gaps
-
-        # Plot each attribute value as a cell in the grid
-        for j, (value, market, pmi, ideal, gap) in enumerate(zip(attr_values, market_pct, pmi_pct, ideal_pct, gaps)):
-            # Calculate grid position
-            col = j % grid_cols
-            row_idx = j // grid_cols
-
-            # Cell coordinates (start from top)
-            x = col
-            y = grid_rows - 1 - row_idx
-
-            # Calculate colors based on PMI vs Ideal gap
-            norm_gap = (gap + 50) / 100  # Normalize gap to 0-1 range for colormap
-            color = cmap(norm_gap)
-
-            # Draw the cell
-            rect = plt.Rectangle((x, y), 0.9, 0.9, facecolor=color, alpha=0.7,
-                                 edgecolor='black', linewidth=1)
-            ax.add_patch(rect)
-
-            # Add text labels
-            ax.text(x + 0.45, y + 0.75, f"{value}", ha='center', va='center', fontsize=10, fontweight='bold')
-            ax.text(x + 0.45, y + 0.6, f"Market: {market:.1f}%", ha='center', va='center', fontsize=9)
-            ax.text(x + 0.45, y + 0.45, f"PMI: {pmi:.1f}%", ha='center', va='center', fontsize=9)
-            ax.text(x + 0.45, y + 0.3, f"Ideal: {ideal:.1f}%", ha='center', va='center', fontsize=9)
-
-            # Add gap indicator
-            gap_text = f"Gap: {gap:.1f}%"
-            gap_color = 'red' if gap < -5 else ('green' if gap > 5 else 'black')
-            ax.text(x + 0.45, y + 0.15, gap_text, ha='center', va='center', fontsize=9,
-                    fontweight='bold', color=gap_color)
-
-        # Calculate and display alignment score
-        alignment_score = 10 - min(10, sum(abs(g) for g in gaps) / 10)
-        ax.text(0.05, 0.97, f"Alignment Score: {alignment_score:.1f}/10",
-                transform=ax.transAxes, fontsize=12, fontweight='bold',
-                bbox=dict(facecolor='white', alpha=0.7, boxstyle='round,pad=0.3'))
-
-    # Add a colorbar
-    sm = plt.cm.ScalarMappable(cmap=cmap)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=axes, orientation='horizontal', pad=0.05, aspect=40)
-    cbar.set_label('Gap: Underrepresented (Green) vs. Overrepresented (Red)')
-
-    plt.tight_layout()
-    plt.suptitle(f"Portfolio Alignment Analysis: {attribute}", fontsize=16, y=1.05)
-    return fig
-
-def extract_attribute_data(id_act_files, cat_files, paris_output=None):
-    """
-    Extract and process attribute distribution data from various files.
-
-    Args:
-        id_act_files (dict): Dictionary of ideal vs. actual files for each attribute
-        cat_files (dict): Dictionary of category files for each attribute
-        paris_output (DataFrame, optional): PARIS output data for validation
-
-    Returns:
-        dict: Processed attribute data by location and attribute
-    """
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    locations = ['Kuwait', 'Jeju']
-
-    attribute_data = {loc: {} for loc in locations}
-
-    for attr in attributes:
-        # Process ideal vs. actual data
-        if attr in id_act_files:
-            id_act_df = pd.read_excel(id_act_files[attr])
-
-            for loc in locations:
-                # Extract columns for this location
-                loc_cols = [col for col in id_act_df.columns if loc in col]
-
-                if not loc_cols:
-                    continue
-
-                # Extract values
-                attr_values = []
-                market_pct = []
-                pmi_pct = []
-                ideal_pct = []
-                gaps = []
-
-                # Find relevant columns
-                actual_col = next((col for col in loc_cols if 'Actual' in col), None)
-                ideal_col = next((col for col in loc_cols if 'Ideal' in col), None)
-                pmi_col = next((col for col in loc_cols if 'PMI' in col), None)
-                gap_col = next((col for col in loc_cols if 'Gap' in col), None)
-
-                if not actual_col or not ideal_col:
-                    continue
-
-                # Extract values from each row
-                for _, row in id_act_df.iterrows():
-                    if pd.isna(row.iloc[0]) or not str(row.iloc[0]).strip():
-                        continue
-
-                    value = str(row.iloc[0]).strip()
-
-                    # Get column indices
-                    actual_idx = id_act_df.columns.get_loc(actual_col)
-                    ideal_idx = id_act_df.columns.get_loc(ideal_col)
-                    pmi_idx = id_act_df.columns.get_loc(pmi_col) if pmi_col else -1
-                    gap_idx = id_act_df.columns.get_loc(gap_col) if gap_col else -1
-
-                    # Extract values
-                    actual = float(row.iloc[actual_idx]) if pd.notna(row.iloc[actual_idx]) else 0
-                    ideal = float(row.iloc[ideal_idx]) if pd.notna(row.iloc[ideal_idx]) else 0
-                    pmi = float(row.iloc[pmi_idx]) if pmi_idx >= 0 and pd.notna(row.iloc[pmi_idx]) else 0
-                    gap = float(row.iloc[gap_idx]) if gap_idx >= 0 and pd.notna(row.iloc[gap_idx]) else (ideal - actual)
-
-                    attr_values.append(value)
-                    market_pct.append(actual)
-                    pmi_pct.append(pmi)
-                    ideal_pct.append(ideal)
-                    gaps.append(gap)
-
-                # Store processed data
-                attribute_data[loc][attr] = {
-                    'values': attr_values,
-                    'market_pct': market_pct,
-                    'pmi_pct': pmi_pct,
-                    'ideal_pct': ideal_pct,
-                    'gaps': gaps
-                }
-
-                # Calculate alignment score
-                alignment_score = 10 - min(10, sum(abs(g) for g in gaps) / 10)
-                attribute_data[loc][attr]['alignment_score'] = alignment_score
-
-    return attribute_data
-
-def generate_portfolio_optimization_dashboard(data_dir, output_dir=None):
-    """
-    Generate a comprehensive portfolio optimization dashboard based on Ed's requirements.
-
-    Args:
-        data_dir (str): Directory containing data files
-        output_dir (str, optional): Directory to save visualization outputs
-
-    Returns:
-        dict: Dictionary of visualization figures
-    """
-    # Set up file paths
-    id_act_files = {
-        'Flavor': os.path.join(data_dir, 'ID_ACT_flavor.xlsx'),
-        'Taste': os.path.join(data_dir, 'ID_ACT_taste.xlsx'),
-        'Thickness': os.path.join(data_dir, 'ID_ACT_thickness.xlsx'),
-        'Length': os.path.join(data_dir, 'ID_ACT_length.xlsx')
-    }
-
-    cat_files = {
-        'Flavor': {
-            'Kuwait': os.path.join(data_dir, 'categories_flavor_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'categories_flavor_JJ.xlsx')
-        },
-        'Taste': {
-            'Kuwait': os.path.join(data_dir, 'categories_taste_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'categories_taste_JJ.xlsx')
-        },
-        'Thickness': {
-            'Kuwait': os.path.join(data_dir, 'categories_thickness_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'categories_thickness_JJ.xlsx')
-        },
-        'Length': {
-            'Kuwait': os.path.join(data_dir, 'categories_length_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'categories_length_JJ.xlsx')
-        }
-    }
-
-    product_files = {
-        'Kuwait': os.path.join(data_dir, 'Product_list_PMI_KW.xlsx'),
-        'Jeju': os.path.join(data_dir, 'Product_list_PMI_JJ.xlsx')
-    }
-
-    dist_files = {
-        'Flavor': {
-            'Kuwait': os.path.join(data_dir, 'distribution_flavor_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'distribution_flavor_JJ.xlsx')
-        },
-        'Taste': {
-            'Kuwait': os.path.join(data_dir, 'distribution_taste_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'distribution_taste_JJ.xlsx')
-        },
-        'Thickness': {
-            'Kuwait': os.path.join(data_dir, 'distribution_thickness_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'distribution_thickness_JJ.xlsx')
-        },
-        'Length': {
-            'Kuwait': os.path.join(data_dir, 'distribution_length_KW.xlsx'),
-            'Jeju': os.path.join(data_dir, 'distribution_length_JJ.xlsx')
-        }
-    }
+    # Load data
+    data = load_data(data_dir)
 
     # Create output directory if specified
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    # Process attribute data
-    print("Processing attribute data...")
-    attribute_data = extract_attribute_data(id_act_files, cat_files)
+    # Define locations
+    locations = ['kuwait', 'jeju']
 
-    # Load product data
-    print("Loading product data...")
-    kw_products = pd.read_excel(product_files['Kuwait'])
-    jj_products = pd.read_excel(product_files['Jeju'])
+    # Create side-by-side attribute distribution visualizations
+    attributes = ['flavor', 'taste', 'thickness', 'length']
 
-    # Generate visualizations
-    print("Generating visualizations...")
-    visualizations = {}
+    for attribute in attributes:
+        # Create figure
+        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
-    # 1. Create shelf visualizations for each attribute
-    attributes = ['Flavor', 'Taste', 'Thickness', 'Length']
-    for attr in attributes:
-        print(f"Creating shelf visualization for {attr}...")
-        fig = create_shelf_visualization(attribute_data, attr)
-        visualizations[f"shelf_{attr.lower()}"] = fig
+        # Plot Kuwait and Jeju distributions
+        for i, location in enumerate(locations):
+            if attribute in data[location]:
+                plot_attribute_distribution(data, attribute, fig, axes[i], location)
 
+        # Add overall title
+        fig.suptitle(f"{attribute.capitalize()} Distribution: Kuwait vs Jeju", fontsize=16)
+
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+        # Save figure if output directory specified
         if output_dir:
-            fig.savefig(os.path.join(output_dir, f"shelf_{attr.lower()}.png"), dpi=300, bbox_inches='tight')
+            fig.savefig(os.path.join(output_dir, f"{attribute}_distribution.png"), dpi=300, bbox_inches='tight')
 
-    # 2. Create product shelf visualization (combining two attributes)
-    print("Creating product shelf visualization...")
-    shelf_fig = create_product_shelf_visualization(kw_products, jj_products)
-    visualizations["product_shelf"] = shelf_fig
-
-    if output_dir:
-        shelf_fig.savefig(os.path.join(output_dir, "product_shelf.png"), dpi=300, bbox_inches='tight')
-
-    # 3. Create radar chart comparing attribute alignment
-    print("Creating radar chart...")
-    radar_data = {loc: {attr: {'alignment_score': attribute_data[loc][attr]['alignment_score']}
-                        for attr in attributes if attr in attribute_data[loc]}
-                  for loc in ['Kuwait', 'Jeju']}
-
-    radar_fig = create_radar_chart(radar_data)
-    visualizations["radar_chart"] = radar_fig
-
-    if output_dir:
-        radar_fig.savefig(os.path.join(output_dir, "radar_chart.png"), dpi=300, bbox_inches='tight')
-
-    # 4. Create summary dashboard
-    print("Creating summary dashboard...")
-    summary_fig, summary_ax = plt.subplots(1, 2, figsize=(16, 8))
-
-    # Kuwait summary (left)
-    summary_ax[0].axis('off')
-    summary_ax[0].set_title("Kuwait - Well-Aligned Portfolio", fontsize=16)
-
-    # Add market share
-    summary_ax[0].text(0.5, 0.9, "Market Share: ~75%", fontsize=14, fontweight='bold',
-                       ha='center', va='center')
-
-    # Add alignment scores
-    y_pos = 0.8
-    for attr in attributes:
-        if attr in attribute_data['Kuwait']:
-            score = attribute_data['Kuwait'][attr]['alignment_score']
-            color = 'green' if score >= 7 else ('orange' if score >= 5 else 'red')
-            summary_ax[0].text(0.5, y_pos, f"{attr} Alignment: {score:.1f}/10",
-                               fontsize=12, color=color, ha='center', va='center')
-            y_pos -= 0.05
-
-    # Add key insights
-    summary_ax[0].text(0.5, 0.6, "Key Insights:", fontsize=12, fontweight='bold',
-                       ha='center', va='center')
-    insights_kw = [
-        "Well-balanced portfolio across all attributes",
-        "Strong alignment with passenger preferences",
-        "Product mix matches market demand",
-        "Few gaps between PMI and ideal distribution"
+    # Create portfolio grid visualizations
+    attribute_pairs = [
+        ('flavor', 'taste'),
+        ('thickness', 'length')
     ]
 
-    y_pos = 0.55
-    for insight in insights_kw:
-        summary_ax[0].text(0.5, y_pos, f"• {insight}", fontsize=11, ha='center', va='center')
-        y_pos -= 0.05
+    for primary_attr, secondary_attr in attribute_pairs:
+        # Create figure
+        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
-    # Jeju summary (right)
-    summary_ax[1].axis('off')
-    summary_ax[1].set_title("Jeju - Misaligned Portfolio", fontsize=16)
+        # Plot Kuwait and Jeju portfolio grids
+        for i, location in enumerate(locations):
+            if primary_attr in data[location] and secondary_attr in data[location]:
+                plot_portfolio_grid(data, primary_attr, secondary_attr, location, fig, axes[i])
 
-    # Add market share
-    summary_ax[1].text(0.5, 0.9, "Market Share: ~12%", fontsize=14, fontweight='bold',
-                       ha='center', va='center')
+        # Add overall title
+        fig.suptitle(f"Portfolio Grid: {primary_attr.capitalize()} vs {secondary_attr.capitalize()}", fontsize=16)
 
-    # Add alignment scores
-    y_pos = 0.8
-    for attr in attributes:
-        if attr in attribute_data['Jeju']:
-            score = attribute_data['Jeju'][attr]['alignment_score']
-            color = 'green' if score >= 7 else ('orange' if score >= 5 else 'red')
-            summary_ax[1].text(0.5, y_pos, f"{attr} Alignment: {score:.1f}/10",
-                               fontsize=12, color=color, ha='center', va='center')
-            y_pos -= 0.05
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
 
-    # Add key insights
-    summary_ax[1].text(0.5, 0.6, "Key Insights:", fontsize=12, fontweight='bold',
-                       ha='center', va='center')
-    insights_jj = [
-        "Significant misalignment in taste and thickness",
-        "Underrepresentation in key passenger preferences",
-        "Overrepresentation in low-demand segments",
-        "Optimization potential for market share growth"
-    ]
+        # Save figure if output directory specified
+        if output_dir:
+            fig.savefig(os.path.join(output_dir, f"{primary_attr}_{secondary_attr}_portfolio.png"), dpi=300,
+                        bbox_inches='tight')
 
-    y_pos = 0.55
-    for insight in insights_jj:
-        summary_ax[1].text(0.5, y_pos, f"• {insight}", fontsize=11, ha='center', va='center')
-        y_pos -= 0.05
+    # Create combined shelf visualization
+    fig = plt.figure(figsize=(20, 10))
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
 
-    # Add optimization recommendations for Jeju
-    summary_ax[1].text(0.5, 0.3, "Optimization Recommendations:", fontsize=12,
-                       fontweight='bold', ha='center', va='center')
-    recommendations = [
-        "Increase SKUs in underrepresented segments",
-        "Reduce SKUs in overrepresented segments",
-        "Align portfolio with passenger mix",
-        "Focus on high-demand attributes"
-    ]
+    # Define primary attributes for visualization
+    primary_attrs = ['flavor', 'taste']
+    secondary_attrs = ['thickness', 'length']
 
-    y_pos = 0.25
-    for rec in recommendations:
-        summary_ax[1].text(0.5, y_pos, f"• {rec}", fontsize=11, ha='center', va='center')
-        y_pos -= 0.05
+    # Create subplots
+    for i, location in enumerate(locations):
+        for j, (primary_attr, secondary_attr) in enumerate(zip(primary_attrs, secondary_attrs)):
+            ax = plt.subplot(gs[i, j])
 
-    plt.tight_layout()
-    summary_fig.suptitle("Portfolio Optimization Summary", fontsize=18, y=0.98)
+            if primary_attr in data[location] and secondary_attr in data[location]:
+                plot_portfolio_grid(
+                    data, primary_attr, secondary_attr, location, fig, ax,
+                    title=f"{location.capitalize()} - {primary_attr.capitalize()} vs {secondary_attr.capitalize()}")
 
-    visualizations["summary_dashboard"] = summary_fig
+    # Add overall title
+    fig.suptitle("Portfolio Alignment: Kuwait (Well-Aligned) vs Jeju (Misaligned)", fontsize=20)
 
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    # Save figure if output directory specified
     if output_dir:
-        summary_fig.savefig(os.path.join(output_dir, "summary_dashboard.png"), dpi=300, bbox_inches='tight')
+        fig.savefig(os.path.join(output_dir, "combined_portfolio_visualization.png"), dpi=300, bbox_inches='tight')
 
-    print(f"Generated {len(visualizations)} visualizations")
-    return visualizations
-# Main execution
+    # Create market share visualization
+    if 'comparison_summary' in data:
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Extract market share data (from summary or preset values)
+        market_shares = {
+            'kuwait': 0.75,  # Approximate as per documentation
+            'jeju': 0.12  # Approximate as per documentation
+        }
+
+        # Try to extract from data if available
+        if 'comparison_summary' in data:
+            df = data['comparison_summary']
+            if 'PMI Volume' in df.columns and 'Total Volume' in df.columns:
+                for i, row in df.iterrows():
+                    location = row['Location'].lower()
+                    if location in market_shares:
+                        market_shares[location] = row['PMI Volume'] / row['Total Volume']
+
+        # Plot bar chart
+        colors = ['green', 'red']
+        bars = ax.bar(locations, [market_shares[loc] * 100 for loc in locations], color=colors)
+
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height + 1,
+                    f'{height:.1f}%', ha='center', va='bottom', fontweight='bold')
+
+        # Add annotations
+        ax.annotate('Well-aligned portfolio\nStrong market share',
+                    xy=(0, market_shares['kuwait'] * 50),
+                    xytext=(0.3, 50), ha='center', fontsize=12,
+                    arrowprops=dict(facecolor='black', shrink=0.05, width=1.5))
+
+        ax.annotate('Misaligned portfolio\nLow market share',
+                    xy=(1, market_shares['jeju'] * 50),
+                    xytext=(0.7, 50), ha='center', fontsize=12,
+                    arrowprops=dict(facecolor='black', shrink=0.05, width=1.5))
+
+        # Add labels and title
+        ax.set_ylabel('Market Share (%)')
+        ax.set_title('PMI Market Share Comparison')
+        ax.set_ylim(0, 100)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # Save figure if output directory specified
+        if output_dir:
+            fig.savefig(os.path.join(output_dir, "market_share_comparison.png"), dpi=300, bbox_inches='tight')
+
+    print(f"Visualizations created successfully{' and saved to ' + output_dir if output_dir else ''}")
+
+
+def create_streamlit_app():
+    """
+    Create a Streamlit app for interactive visualization
+    """
+    import streamlit as st
+
+    st.title("PMI Portfolio Optimization Visualization")
+
+    # Set data directory
+    data_dir = st.sidebar.text_input("Data Directory", value="./locations_data")
+
+    # Load data
+    data = load_data(data_dir)
+
+    # Select visualization type
+    viz_type = st.sidebar.selectbox(
+        "Visualization Type",
+        ["Attribute Distribution", "Portfolio Grid", "Market Share"]
+    )
+
+    if viz_type == "Attribute Distribution":
+        # Select attribute
+        attribute = st.sidebar.selectbox("Attribute", ["flavor", "taste", "thickness", "length"])
+
+        # Create columns for Kuwait and Jeju
+        col1, col2 = st.columns(2)
+
+        # Create figures
+        for i, (location, col) in enumerate(zip(['kuwait', 'jeju'], [col1, col2])):
+            if attribute in data[location]:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                plot_attribute_distribution(data, attribute, fig, ax, location)
+                col.pyplot(fig)
+
+                # Add market share information
+                if 'summary' in data[location]:
+                    summary = data[location]['summary']
+                    if isinstance(summary, pd.DataFrame):
+                        # Extract market share if available
+                        market_share = None
+                        for _, row in summary.iterrows():
+                            if 'Market Share' in row['Category'] and 'PMI Share' in row['Metric']:
+                                market_share = row['Value']
+                                break
+
+                        if market_share:
+                            col.metric(f"{location.capitalize()} Market Share", market_share)
+
+    elif viz_type == "Portfolio Grid":
+        # Select attributes
+        primary_attr = st.sidebar.selectbox("Primary Attribute", ["flavor", "taste"])
+        secondary_attr = st.sidebar.selectbox("Secondary Attribute", ["thickness", "length"])
+
+        # Create columns for Kuwait and Jeju
+        col1, col2 = st.columns(2)
+
+        # Create figures
+        for i, (location, col) in enumerate(zip(['kuwait', 'jeju'], [col1, col2])):
+            if primary_attr in data[location] and secondary_attr in data[location]:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                plot_portfolio_grid(data, primary_attr, secondary_attr, location, fig, ax)
+                col.pyplot(fig)
+
+    elif viz_type == "Market Share":
+        # Extract market share data
+        market_shares = {
+            'kuwait': 0.75,  # Approximate as per documentation
+            'jeju': 0.12  # Approximate as per documentation
+        }
+
+        # Try to extract from data if available
+        if 'comparison_summary' in data:
+            df = data['comparison_summary']
+            if 'PMI Volume' in df.columns and 'Total Volume' in df.columns:
+                for i, row in df.iterrows():
+                    location = row['Location'].lower()
+                    if location in market_shares:
+                        market_shares[location] = row['PMI Volume'] / row['Total Volume']
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Plot bar chart
+        colors = ['green', 'red']
+        bars = ax.bar(['kuwait', 'jeju'], [market_shares[loc] * 100 for loc in ['kuwait', 'jeju']], color=colors)
+
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height + 1,
+                    f'{height:.1f}%', ha='center', va='bottom', fontweight='bold')
+
+        # Add labels and title
+        ax.set_ylabel('Market Share (%)')
+        ax.set_title('PMI Market Share Comparison')
+        ax.set_ylim(0, 100)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+        st.pyplot(fig)
+
+        # Add explanation
+        st.markdown("""
+        ### Market Share Analysis
+
+        The visualization above shows a clear correlation between portfolio alignment and market share performance:
+
+        - **Kuwait (75%)**: Well-aligned portfolio with strong market share
+        - **Jeju (12%)**: Misaligned portfolio with low market share
+
+        This demonstrates that better alignment of product attributes with consumer preferences leads to higher market penetration.
+        """)
+
+
 if __name__ == "__main__":
-    data_dir = "data"
-    output_dir = "visualizations"
+    # Define data directory
+    data_dir = "./locations_data"
 
-    # Generate all visualizations
-    visualizations = generate_portfolio_optimization_dashboard(data_dir, output_dir)
+    # Define output directory
+    output_dir = "./visualization_results"
 
-    print(f"All visualizations saved to {output_dir}")
+    # Create visualizations
+    create_portfolio_visualization(data_dir, output_dir)
